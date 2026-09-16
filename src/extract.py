@@ -154,7 +154,12 @@ print(freehire_data["meta"])
 print("Total jobs found: ", len(freehire_jobs))
 
 
-with open("data/raw/freehire_jobs.json", "w") as file:
-    json.dump(freehire_jobs, file)
+with open("data/raw/freehire_jobs.json", "w", encoding="utf-8") as file:
+    json.dump(
+        freehire_jobs,
+        file,
+        indent=4,
+        ensure_ascii=False
+    )
 
 print("FreeHire JSON file created!")
