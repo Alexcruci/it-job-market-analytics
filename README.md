@@ -2,17 +2,19 @@
 
 > **An end-to-end Data Engineering project exploring the IT job market through real-world API data.**
 
-This project collects IT job postings from multiple sources, preserves the original API responses, transforms and integrates heterogeneous data, and will ultimately load the resulting dataset into PostgreSQL for SQL analysis and Power BI visualization.
+This project collects IT job postings from multiple sources, preserves the original API responses, transforms and integrates heterogeneous data, and loads the resulting dataset into PostgreSQL for downstream SQL analysis and Power BI visualization.
 
 The goal is not just to analyze a dataset, but to **build the pipeline that creates it**.
 
 > 🚧 **Project Status — Work in Progress**
 >
-> The **extraction and transformation layers are complete**.
+> The core **Extract → Transform → Load pipeline is complete**.
 >
-> The pipeline currently collects data from Adzuna and FreeHire, preserves the raw API responses, transforms both sources into a common schema, validates the resulting dataset, and produces a processed JSON dataset.
+> The pipeline currently collects data from Adzuna and FreeHire, preserves the raw API responses, transforms both sources into a common schema, validates the resulting dataset, and loads it into a normalized PostgreSQL database.
 >
-> **PostgreSQL integration is the next development milestone**, followed by SQL analysis and visualization.
+> A current run produces **14,613 jobs**, **774 unique skills**, and **82,262 job-skill relationships**.
+>
+> **SQL analysis is the next development milestone**, followed by Power BI visualization.
 
 ---
 
@@ -72,12 +74,12 @@ The project follows a layered architecture where each stage has a clearly define
            │
            ▼
 ┌──────────────────────┐
-│      PostgreSQL      │  🚧
+│  PostgreSQL Loading  │  ✅
 └──────────┬───────────┘
            │
            ▼
 ┌──────────────────────┐
-│     SQL Analysis     │  📋
+│     SQL Analysis     │  🚧
 └──────────┬───────────┘
            │
            ▼
@@ -183,7 +185,20 @@ Temporary Jooble test files were subsequently removed so that the repository ref
 
 ## 📥 Extraction Layer
 
-The extraction layer is the first completed component of the pipeline.
+The extraction layer is implemented in:
+
+```text
+src/extract.py
+```
+
+and produces:
+
+```text
+data/
+└── raw/
+    ├── adzuna_jobs.json
+    └── freehire_jobs.json
+```
 
 Its responsibility is deliberately narrow:
 
@@ -201,21 +216,6 @@ Collect Records
     │
     ▼
 Persist Raw JSON
-```
-
-The extraction logic is implemented in:
-
-```text
-src/extract.py
-```
-
-and produces:
-
-```text
-data/
-└── raw/
-    ├── adzuna_jobs.json
-    └── freehire_jobs.json
 ```
 
 ### What extraction does — and does not do
@@ -261,10 +261,10 @@ The project persists API responses **before transformation**:
 SOURCE
    │
    ▼
-  RAW        ← preserve what was collected
+ RAW        ← preserve what was collected
    │
    ▼
-TRANSFORM    ← clean, normalize, integrate
+TRANSFORM   ← clean, normalize, integrate
    │
    ▼
 DATABASE
@@ -450,35 +450,171 @@ The current processed dataset contains:
 
 ---
 
-## 🐘 PostgreSQL
+## 🐘 PostgreSQL Load Layer
 
-> 🚧 **Next development milestone**
+The transformed dataset is loaded into PostgreSQL by:
 
-The next stage is to load the transformed dataset into PostgreSQL.
+```text
+src/load.py
+```
 
-This stage will introduce persistent relational storage and explicit data modelling.
+The database schema is defined separately in:
 
-The next tasks will include:
+```text
+sql/schema.sql
+```
 
-- designing the database schema;
-- selecting appropriate PostgreSQL data types;
-- defining primary and unique keys;
-- defining constraints;
-- creating the required table or tables;
-- loading transformed records;
-- validating loaded data with SQL.
+This keeps the database structure explicit and version-controlled rather than embedding table creation inside the loading logic.
 
-An internal database identifier can be separated from the source-level identity represented by `(source, source_job_id)`.
+### Relational Data Model
 
-The PostgreSQL model will be designed from the transformed dataset that now actually exists rather than from assumptions about the original APIs.
+The PostgreSQL layer uses three tables:
+
+```text
+┌──────────────────────┐
+│        jobs          │
+├──────────────────────┤
+│ job_id          PK   │
+│ source_job_id        │
+│ source               │
+│ title                │
+│ company              │
+│ location             │
+│ salary_min           │
+│ salary_max           │
+│ seniority            │
+│ work_mode            │
+│ published_date       │
+└──────────┬───────────┘
+           │
+           │ 1:N
+           ▼
+┌──────────────────────┐
+│     job_skills       │
+├──────────────────────┤
+│ job_id       PK, FK  │
+│ skill_id     PK, FK  │
+└──────────┬───────────┘
+           │
+           │ N:1
+           ▼
+┌──────────────────────┐
+│       skills         │
+├──────────────────────┤
+│ skill_id        PK   │
+│ skill_name    UNIQUE │
+└──────────────────────┘
+```
+
+The `jobs` table uses a PostgreSQL-generated `job_id` as its internal primary key.
+
+Source-level identity is preserved through the unique pair:
+
+```text
+(source, source_job_id)
+```
+
+This prevents two records from the same source from sharing the same source identifier while allowing identifiers from different providers to coexist.
+
+### Why Normalize Skills?
+
+A job can require many skills, and the same skill can appear in many jobs.
+
+This is a genuine **many-to-many relationship**, so skills are represented separately rather than stored as a serialized list inside the relational model.
+
+The `job_skills` junction table connects jobs and skills through their generated identifiers.
+
+This allows queries such as:
+
+```sql
+SELECT jobs.title, skills.skill_name
+FROM jobs
+INNER JOIN job_skills
+    ON jobs.job_id = job_skills.job_id
+INNER JOIN skills
+    ON skills.skill_id = job_skills.skill_id;
+```
+
+and provides a relational foundation for later analyses of skill demand and skill combinations.
+
+### Loading Strategy
+
+Version 1 uses a **full-refresh loading strategy**.
+
+Before inserting the current processed dataset, the loader executes:
+
+```sql
+TRUNCATE job_skills, jobs, skills RESTART IDENTITY;
+```
+
+The previous database state is therefore replaced by the latest processed dataset rather than incrementally updated.
+
+This approach was selected because:
+
+- the current dataset is small enough to reload efficiently;
+- `jobs.json` represents the complete processed dataset for the current run;
+- it keeps version 1 loading logic simple and reproducible;
+- incremental loading would introduce additional state-management complexity that is not yet required.
+
+The full refresh and all subsequent inserts execute inside the same database transaction.
+
+The transaction is committed only after the complete load and validation queries succeed. This prevents the `TRUNCATE` from being persisted independently of the replacement data.
+
+### Loading Process
+
+The current loader performs the following steps:
+
+```text
+Processed JSON
+      │
+      ▼
+Full database refresh
+      │
+      ▼
+Extract unique skills
+      │
+      ▼
+Insert skills
+      │
+      ▼
+Build skill_name → skill_id mapping
+      │
+      ▼
+Insert jobs
+      │
+      ▼
+Create job-skill relationships
+      │
+      ▼
+Validate loaded row counts
+      │
+      ▼
+Commit transaction
+```
+
+PostgreSQL-generated IDs are retrieved during loading so that each job can be associated with the correct rows in the `skills` table.
+
+### Current Database Results
+
+A complete load currently produces:
+
+| Table | Rows |
+| --- | ---: |
+| `jobs` | **14,613** |
+| `skills` | **774** |
+| `job_skills` | **82,262** |
+
+The loader has also been tested by running it again against an already populated database.
+
+Because version 1 performs a full refresh, the second run completes successfully and reproduces the same database state without accumulating duplicate records.
 
 ---
 
 ## 📊 Analysis & Visualization
 
-> 📋 **Planned**
+> 🚧 **Next development milestone**
 
-Once data is available in PostgreSQL, SQL will be used to investigate the analytical questions defined at the beginning of the project.
+With the transformed data now available in PostgreSQL, SQL will be used to investigate the analytical questions defined at the beginning of the project.
 
 Potential areas of analysis include:
 
@@ -519,12 +655,13 @@ The final dashboard will be designed around what the completed dataset can genui
 | 🐍 | **Python** | Pipeline implementation |
 | 🌐 | **Requests** | API communication |
 | `{ }` | **JSON** | Raw and processed data persistence |
-| 🔐 | **python-dotenv** | Environment variables |
+| 🔐 | **python-dotenv** | Environment variables and configuration |
 | 🐼 | **Pandas** | Transformation and data validation |
+| 🐘 | **PostgreSQL** | Relational data storage |
+| 🔌 | **Psycopg** | Python–PostgreSQL communication |
+| 🗄️ | **SQL** | Schema definition, validation & analysis |
 | 🌿 | **Git** | Version control |
 | 🐙 | **GitHub** | Repository & documentation |
-| 🐘 | **PostgreSQL** | Relational storage — next milestone |
-| 🗄️ | **SQL** | Validation & analysis — planned |
 | 📊 | **Power BI** | Visualization — planned |
 | 🐳 | **Docker** | Reproducibility — under evaluation |
 
@@ -550,9 +687,12 @@ The final dashboard will be designed around what the completed dataset can genui
 | Integrate source schemas | ✅ |
 | Validate transformed data | ✅ |
 | Persist processed dataset | ✅ |
-| **Design PostgreSQL schema** | **🚧** |
-| Load data into PostgreSQL | 📋 |
-| Write analytical SQL queries | 📋 |
+| Design PostgreSQL schema | ✅ |
+| Implement relational model | ✅ |
+| Implement `load.py` | ✅ |
+| Load transformed data into PostgreSQL | ✅ |
+| Validate relational data and joins | ✅ |
+| **Write analytical SQL queries** | **🚧** |
 | Build Power BI analysis | 📋 |
 | Add automated tests | 📋 |
 | Improve logging & observability | 📋 |
@@ -617,7 +757,31 @@ They are handled independently during extraction and converge into a common repr
 
 ### Model the database after understanding the data
 
-The PostgreSQL schema is being designed from the transformed dataset rather than prematurely imposing a relational structure on unknown source fields.
+The PostgreSQL schema was designed from the transformed dataset rather than prematurely imposing a relational structure on unknown source fields.
+
+### Skills are a relational entity
+
+Skills are not stored as a list inside the `jobs` table.
+
+Because jobs and skills have a genuine many-to-many relationship, they are normalized into `skills` and connected through `job_skills`.
+
+### Internal identity and source identity serve different purposes
+
+PostgreSQL generates an internal `job_id`, while `(source, source_job_id)` preserves the identity of a record within its original provider.
+
+Keeping both avoids coupling database relationships to external identifiers.
+
+### Version 1 uses full-refresh loading
+
+The processed JSON represents the complete current dataset and is small enough to reload efficiently.
+
+For that reason, version 1 replaces the previous database state rather than implementing incremental loading prematurely.
+
+### Loading is transactional
+
+The full refresh and subsequent inserts are committed as a single transaction.
+
+This ensures the database is not intentionally left in a partially refreshed state if the load does not complete successfully.
 
 ### No technology for technology's sake
 
@@ -689,17 +853,17 @@ These are **future possibilities, not currently implemented features**.
 ## 📍 Where the Project Is Now
 
 ```text
-                              YOU ARE HERE
-                                   │
-                                   ▼
+                               YOU ARE HERE
+                                    │
+                                    ▼
 API ──► EXTRACT ──► RAW ──► TRANSFORM ──► PROCESSED ──► POSTGRESQL ──► ANALYZE
-        ████████     ████████     ████████      ████████       ░░░░░░░░      ░░░░░░░░
-           ✅           ✅           ✅             ✅             🚧             📋
+        ████████     ████████      ████████       ████████       ████████       ░░░░░░░░
+           ✅           ✅            ✅              ✅             ✅             🚧
 ```
 
 ### Next milestone
 
-**Design the PostgreSQL model for the transformed dataset and implement the first loading stage.**
+**Use SQL to validate and explore the PostgreSQL dataset and answer the first analytical questions.**
 
 ---
 
