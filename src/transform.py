@@ -37,11 +37,19 @@ for job in adzuna_jobs:
 
     transformed_adzuna_jobs.append(transformed_job)
 
+filtered_adzuna_jobs = []
+
+for job in transformed_adzuna_jobs:
+    if not (
+        job["company"] == "Ernesto"
+        and job["title"].startswith("I nostri clienti hanno richiesto")
+    ):
+        filtered_adzuna_jobs.append(job)
 
 # Deduplicate Adzuna jobs by source job ID
 seen_jobs = {}
 
-for job in transformed_adzuna_jobs:
+for job in filtered_adzuna_jobs:
     job_id = job["source_job_id"]
 
     if job_id not in seen_jobs:
@@ -54,6 +62,11 @@ for job in transformed_adzuna_jobs:
 deduplicated_adzuna_jobs = list(seen_jobs.values())
 
 print("Transformed Adzuna jobs:", len(transformed_adzuna_jobs))
+print("Filtered Adzuna jobs:", len(filtered_adzuna_jobs))
+print(
+    "Adzuna service requests removed:",
+    len(transformed_adzuna_jobs) - len(filtered_adzuna_jobs)
+)
 print("Deduplicated Adzuna jobs:", len(deduplicated_adzuna_jobs))
 
 
