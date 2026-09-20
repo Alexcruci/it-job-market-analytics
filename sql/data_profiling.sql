@@ -1,5 +1,5 @@
 -- ============================================================
--- Project Zero - Data Profiling
+-- Project IT Market Analysis - Data Profiling
 -- ============================================================
 
 
@@ -19,6 +19,7 @@ SELECT
     COUNT(*) AS total_jobs,
     COUNT(*) - COUNT(company) AS missing_company,
     COUNT(*) - COUNT(location) AS missing_location,
+    COUNT(*) - COUNT(city) AS missing_city,
     COUNT(*) - COUNT(salary_min) AS missing_salary_min,
     COUNT(*) - COUNT(salary_max) AS missing_salary_max,
     COUNT(*) - COUNT(seniority) AS missing_seniority,
@@ -78,17 +79,21 @@ SELECT
     COUNT(*) AS job_count
 FROM jobs
 WHERE EXTRACT(YEAR FROM published_date) = 2026
-GROUP BY source, EXTRACT(MONTH FROM published_date)
-ORDER BY source, EXTRACT(MONTH FROM published_date);
+GROUP BY
+    source,
+    EXTRACT(MONTH FROM published_date)
+ORDER BY
+    source,
+    EXTRACT(MONTH FROM published_date);
 
 
--- 8. Salary coverage by source
+-- 8. Salary minimum coverage by source
 
 SELECT
     source,
     COUNT(*) AS total_jobs,
-    COUNT(salary_min) AS jobs_with_salary,
-    COUNT(salary_min) * 100.0 / COUNT(*) AS salary_coverage_pct
+    COUNT(salary_min) AS jobs_with_salary_min,
+    COUNT(salary_min) * 100.0 / COUNT(*) AS salary_min_coverage_pct
 FROM jobs
 GROUP BY source;
 
@@ -122,7 +127,7 @@ SELECT
     COUNT(DISTINCT js.job_id) AS jobs_with_skills,
     COUNT(DISTINCT js.job_id) * 100.0
         / COUNT(DISTINCT j.job_id) AS skills_coverage_pct
-FROM jobs j
-LEFT JOIN job_skills js
+FROM jobs AS j
+LEFT JOIN job_skills AS js
     ON j.job_id = js.job_id
 GROUP BY j.source;
