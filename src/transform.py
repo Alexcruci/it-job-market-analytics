@@ -3,18 +3,120 @@ import json
 import pandas as pd
 
 
+ITALIAN_REGIONS = {
+    "abruzzo",
+    "basilicata",
+    "calabria",
+    "campania",
+    "emilia-romagna",
+    "emilia romagna",
+    "friuli-venezia giulia",
+    "friuli venezia giulia",
+    "lazio",
+    "liguria",
+    "lombardia",
+    "marche",
+    "molise",
+    "piemonte",
+    "puglia",
+    "sardegna",
+    "sicilia",
+    "toscana",
+    "trentino-alto adige",
+    "trentino alto adige",
+    "umbria",
+    "valle d'aosta",
+    "veneto",
+}
+
+CITY_ALIASES = {
+    "milan": "Milano",
+    "rome": "Roma",
+    "turin": "Torino",
+    "florence": "Firenze",
+    "naples": "Napoli",
+    "padua": "Padova",
+    "genoa": "Genova",
+    "perm": "Parma",
+}
+
+
+def derive_freehire_city(job):
+    cities = job.get("cities") or []
+
+    if not cities:
+        return None
+
+    if len(cities) > 1:
+        return None
+
+    city = cities[0].strip()
+
+    if not city:
+        return None
+
+    city_lower = city.lower()
+
+    if city_lower in ITALIAN_REGIONS:
+        return None
+
+    if city_lower in {"italy", "italia"}:
+        return None
+
+    if city_lower in CITY_ALIASES:
+        return CITY_ALIASES[city_lower]
+
+    return city
+
+
+def derive_adzuna_city(job):
+    location = (job.get("location") or {}).get("display_name")
+
+    if not location:
+        return None
+
+    city = location.split(",")[0].strip()
+
+    if not city:
+        return None
+
+    city_lower = city.lower()
+
+    if city_lower in {"italy", "italia"}:
+        return None
+
+    if city_lower in ITALIAN_REGIONS:
+        return None
+
+    if city_lower.startswith("provincia di "):
+        return None
+
+    if city_lower in CITY_ALIASES:
+        return CITY_ALIASES[city_lower]
+
+    return city
+
+
 # Load raw Adzuna jobs
-with open("data/raw/adzuna_jobs.json", "r", encoding="utf-8") as file:
+with open(
+    "data/raw/adzuna_jobs.json",
+    "r",
+    encoding="utf-8",
+) as file:
     adzuna_jobs = json.load(file)
 
 print("Adzuna jobs loaded:", len(adzuna_jobs))
 
 
-# Load raw Freehire jobs
-with open("data/raw/freehire_jobs.json", "r", encoding="utf-8") as file:
+# Load raw FreeHire jobs
+with open(
+    "data/raw/freehire_jobs.json",
+    "r",
+    encoding="utf-8",
+) as file:
     freehire_jobs = json.load(file)
 
-print("Freehire jobs loaded:", len(freehire_jobs))
+print("FreeHire jobs loaded:", len(freehire_jobs))
 
 
 # Transform Adzuna jobs to the common schema
@@ -26,25 +128,31 @@ for job in adzuna_jobs:
         "source": "adzuna",
         "title": job["title"],
         "company": job["company"].get("display_name"),
-        "location": job["location"]["display_name"],
+        "location": (job.get("location") or {}).get("display_name"),
+        "city": derive_adzuna_city(job),
         "salary_min": job.get("salary_min"),
         "salary_max": job.get("salary_max"),
         "skills": None,
         "seniority": None,
         "work_mode": None,
-        "published_date": job["created"]
+        "published_date": job["created"],
     }
 
     transformed_adzuna_jobs.append(transformed_job)
 
+
+# Remove non-job Ernesto service requests identified during SQL profiling
 filtered_adzuna_jobs = []
 
 for job in transformed_adzuna_jobs:
     if not (
         job["company"] == "Ernesto"
-        and job["title"].startswith("I nostri clienti hanno richiesto")
+        and job["title"].startswith(
+            "I nostri clienti hanno richiesto"
+        )
     ):
         filtered_adzuna_jobs.append(job)
+
 
 # Deduplicate Adzuna jobs by source job ID
 seen_jobs = {}
@@ -65,12 +173,12 @@ print("Transformed Adzuna jobs:", len(transformed_adzuna_jobs))
 print("Filtered Adzuna jobs:", len(filtered_adzuna_jobs))
 print(
     "Adzuna service requests removed:",
-    len(transformed_adzuna_jobs) - len(filtered_adzuna_jobs)
+    len(transformed_adzuna_jobs) - len(filtered_adzuna_jobs),
 )
 print("Deduplicated Adzuna jobs:", len(deduplicated_adzuna_jobs))
 
 
-# Transform Freehire jobs to the common schema
+# Transform FreeHire jobs to the common schema
 transformed_freehire_jobs = []
 
 for job in freehire_jobs:
@@ -80,18 +188,19 @@ for job in freehire_jobs:
         "title": job["title"],
         "company": job["company"],
         "location": job["location"],
+        "city": derive_freehire_city(job),
         "salary_min": job["enrichment"].get("salary_min"),
         "salary_max": job["enrichment"].get("salary_max"),
         "skills": job.get("skills"),
         "seniority": job["enrichment"].get("seniority"),
         "work_mode": job.get("work_mode"),
-        "published_date": job["posted_at"]
+        "published_date": job["posted_at"],
     }
 
     transformed_freehire_jobs.append(transformed_job)
 
 
-# Deduplicate Freehire jobs by source job ID
+# Deduplicate FreeHire jobs by source job ID
 seen_freehire_jobs = {}
 
 for job in transformed_freehire_jobs:
@@ -104,10 +213,18 @@ for job in transformed_freehire_jobs:
         print(seen_freehire_jobs[job_id])
         print(job)
 
-deduplicated_freehire_jobs = list(seen_freehire_jobs.values())
+deduplicated_freehire_jobs = list(
+    seen_freehire_jobs.values()
+)
 
-print("Transformed Freehire jobs:", len(transformed_freehire_jobs))
-print("Deduplicated Freehire jobs:", len(deduplicated_freehire_jobs))
+print(
+    "Transformed FreeHire jobs:",
+    len(transformed_freehire_jobs),
+)
+print(
+    "Deduplicated FreeHire jobs:",
+    len(deduplicated_freehire_jobs),
+)
 
 
 # Combine both sources into a single dataset
@@ -123,7 +240,11 @@ df = pd.DataFrame(clean_dataset)
 
 
 # Normalize empty locations as missing values
-df["location"] = df["location"].replace(r"^\s*$", None, regex=True)
+df["location"] = df["location"].replace(
+    r"^\s*$",
+    None,
+    regex=True,
+)
 
 
 # Validate schema
@@ -133,12 +254,13 @@ expected_columns = [
     "title",
     "company",
     "location",
+    "city",
     "salary_min",
     "salary_max",
     "skills",
     "seniority",
     "work_mode",
-    "published_date"
+    "published_date",
 ]
 
 if list(df.columns) == expected_columns:
@@ -162,7 +284,10 @@ print("Duplicated records:", duplicated_records)
 # Validate salary ranges
 invalid_salary = df["salary_min"] > df["salary_max"]
 
-print("Records with invalid salary range:", invalid_salary.sum())
+print(
+    "Records with invalid salary range:",
+    invalid_salary.sum(),
+)
 
 
 # Validate source values
@@ -179,47 +304,72 @@ invalid_work_mode = (
     & df["work_mode"].notna()
 ).sum()
 
-print("Records with invalid work mode:", invalid_work_mode)
+print(
+    "Records with invalid work mode:",
+    invalid_work_mode,
+)
 
 
 # Validate seniority values when present
 invalid_seniority = (
-    ~df["seniority"].isin([
-        "senior",
-        "junior",
-        "lead",
-        "staff",
-        "intern",
-        "middle",
-        "c_level",
-        "principal"
-    ])
+    ~df["seniority"].isin(
+        [
+            "senior",
+            "junior",
+            "lead",
+            "staff",
+            "intern",
+            "middle",
+            "c_level",
+            "principal",
+        ]
+    )
     & df["seniority"].notna()
 ).sum()
 
-print("Records with invalid seniority:", invalid_seniority)
+print(
+    "Records with invalid seniority:",
+    invalid_seniority,
+)
 
 
 # Parse and validate publication dates
 parsed_dates = pd.to_datetime(
     df["published_date"],
     errors="coerce",
-    utc=True
+    utc=True,
 )
 
 df["published_date"] = parsed_dates
 
 invalid_dates = parsed_dates.isna().sum()
 
-print("Records with invalid publication date:", invalid_dates)
+print(
+    "Records with invalid publication date:",
+    invalid_dates,
+)
 
 
 # Check required string fields for empty values
-required_string_columns = ["source_job_id", "source", "title"]
+required_string_columns = [
+    "source_job_id",
+    "source",
+    "title",
+]
 
 for column in required_string_columns:
-    empty_values = df[column].astype(str).str.strip().eq("").sum()
-    print(f"Empty values in {column}: {empty_values}")
+    empty_values = (
+        df[column]
+        .astype(str)
+        .str.strip()
+        .eq("")
+        .sum()
+    )
+
+    print(
+        f"Empty values in {column}: "
+        f"{empty_values}"
+    )
 
 
 # Report missing locations after normalization
@@ -229,7 +379,10 @@ print("Missing locations:", missing_locations)
 
 
 # Report final record count by source
-print("Records by source:\n", df["source"].value_counts())
+print(
+    "Records by source:\n",
+    df["source"].value_counts(),
+)
 
 
 # Save processed dataset
@@ -238,7 +391,7 @@ df.to_json(
     orient="records",
     date_format="iso",
     force_ascii=False,
-    indent=4
+    indent=4,
 )
 
 print("Processed dataset saved: data/processed/jobs.json")

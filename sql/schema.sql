@@ -5,6 +5,7 @@ CREATE TABLE jobs (
     title TEXT NOT NULL,
     company TEXT,
     location TEXT,
+    city TEXT,
     salary_min NUMERIC,
     salary_max NUMERIC,
     seniority TEXT,
@@ -13,9 +14,9 @@ CREATE TABLE jobs (
     UNIQUE (source, source_job_id)
 );
 
-CREATE TABLE skills(
+CREATE TABLE skills (
     skill_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    skill_name TEXT NOT NULL UNIQUE 
+    skill_name TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE job_skills (
