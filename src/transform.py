@@ -38,6 +38,11 @@ CITY_ALIASES = {
     "padua": "Padova",
     "genoa": "Genova",
     "perm": "Parma",
+    "torino": "Torino",
+    "trento": "Trento",
+    "gallicano nel lazio": "Gallicano nel Lazio",
+    "rimini": "Rimini",
+    "caldaro sulla strada del vino": "Caldaro sulla Strada del Vino",
 }
 
 
