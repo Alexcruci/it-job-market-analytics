@@ -1,10 +1,13 @@
-import os
 import json
+import os
+
 import requests
 from dotenv import load_dotenv
 
+
 # Load environment variables
 load_dotenv()
+
 
 # Adzuna extraction
 # Define API parameters
@@ -22,6 +25,7 @@ page = 1
 adzuna_jobs = []
 max_retries = 3
 seen_ids = set()
+adzuna_reported_count = None
 
 while True:
     url = f"https://api.adzuna.com/v1/api/jobs/it/search/{page}"
@@ -31,7 +35,7 @@ while True:
             response = requests.get(
                 url,
                 params=params,
-                timeout=10
+                timeout=10,
             )
             break
         except requests.exceptions.Timeout:
@@ -54,6 +58,7 @@ while True:
         break
 
     adzuna_data = response.json()
+    adzuna_reported_count = adzuna_data["count"]
     results = adzuna_data["results"]
 
     if len(results) == 0:
@@ -83,83 +88,97 @@ while True:
 
 print("Jobs downloaded:", len(adzuna_jobs))
 print("Unique job IDs:", len(seen_ids))
-print(
-    "Total available jobs reported by Adzuna:",
-    adzuna_data["count"]
-)
+
+if adzuna_reported_count is not None:
+    print(
+        "Total available jobs reported by Adzuna:",
+        adzuna_reported_count,
+    )
+
 with open(
     "data/raw/adzuna_jobs.json",
     "w",
-    encoding="utf-8"
+    encoding="utf-8",
 ) as file:
     json.dump(
         adzuna_jobs,
         file,
         ensure_ascii=False,
-        indent=4
+        indent=4,
     )
 
 print("Adzuna JSON file created.")
 
 
-# Freehire Extraction
+# FreeHire extraction
 # Define API parameters
 url = "https://freehire.me/api/v1/jobs/search"
+
 params = {
     "countries": "IT",
     "is_tech": "tech",
     "limit": 100,
-    "offset": 0
+    "offset": 0,
 }
 
-freehire_jobs=[]
+freehire_jobs = []
 max_retries = 3
+
 while params["offset"] < 10000:
     for attempt in range(max_retries):
         try:
             response = requests.get(
                 url,
                 params=params,
-                timeout=10
+                timeout=10,
             )
             break
         except requests.exceptions.Timeout:
-                    print(
-                        f"Timeout on offset {params["offset"]} - "
-                        f"Attempt {attempt + 1}/{max_retries}"
-                    )
+            print(
+                f"Timeout on offset {params['offset']} - "
+                f"Attempt {attempt + 1}/{max_retries}"
+            )
     else:
         print(
-        f"Failed to retrieve offset: {params["offset"]}. "
-        f"Stopping extraction."
+            f"Failed to retrieve offset {params['offset']}. "
+            f"Stopping extraction."
         )
         break
+
     if response.status_code != 200:
         print(
             f"Request failed on offset {params['offset']}: "
             f"HTTP {response.status_code}"
         )
         break
+
     freehire_data = response.json()
-    print(f"Offset: {params['offset']}, Jobs: {len(freehire_data['data'])}")
-    if len(freehire_data["data"]) == 0: # Stop pagination when the API returns no jobs
+    results = freehire_data["data"]
+
+    print(
+        f"Offset: {params['offset']}, "
+        f"Jobs: {len(results)}"
+    )
+
+    # Stop pagination when the API returns no jobs
+    if len(results) == 0:
         break
-    freehire_jobs.extend(freehire_data["data"])
 
-    params["offset"]+=params["limit"]
+    freehire_jobs.extend(results)
+    params["offset"] += params["limit"]
 
+print("Total FreeHire jobs downloaded:", len(freehire_jobs))
 
-print(response.status_code)
-print(freehire_data["meta"])
-print("Total jobs found: ", len(freehire_jobs))
-
-
-with open("data/raw/freehire_jobs.json", "w", encoding="utf-8") as file:
+with open(
+    "data/raw/freehire_jobs.json",
+    "w",
+    encoding="utf-8",
+) as file:
     json.dump(
         freehire_jobs,
         file,
         indent=4,
-        ensure_ascii=False
+        ensure_ascii=False,
     )
 
-print("FreeHire JSON file created!")
+print("FreeHire JSON file created.")
