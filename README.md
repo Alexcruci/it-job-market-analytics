@@ -1,349 +1,127 @@
-# 💼 IT Job Market Data Pipeline
+# IT Job Market Data Pipeline
 
-> **An end-to-end Data Engineering project exploring the IT job market through real-world API data.**
+An end-to-end Data Engineering project that collects technology job postings relevant to the Italian market, integrates heterogeneous API data, validates and transforms it, loads it into PostgreSQL, and analyzes the resulting dataset with SQL.
 
-This project collects IT job postings from multiple sources, preserves the original API responses, transforms and integrates heterogeneous data, and loads the resulting dataset into PostgreSQL for downstream SQL analysis and Power BI visualization.
+The main goal of the project is not simply to analyze an existing dataset, but to build the pipeline that creates it.
 
-The goal is not just to analyze a dataset, but to **build the pipeline that creates it**.
+## Project Status
 
-> 🚧 **Project Status — Work in Progress**
->
-> The core **Extract → Transform → Load pipeline is complete**.
->
-> The pipeline currently collects data from Adzuna and FreeHire, preserves the raw API responses, transforms both sources into a common schema, validates the resulting dataset, and loads it into a normalized PostgreSQL database.
->
-> A current run produces **14,613 jobs**, **774 unique skills**, and **82,262 job-skill relationships**.
->
-> **SQL analysis is the next development milestone**, followed by Power BI visualization.
+**Core data pipeline and SQL analysis complete. Power BI visualization is the next milestone.**
 
----
+Current database snapshot:
 
-## 🎯 What Are We Trying to Find Out?
-
-### Core Question
-
-> **Which skills, technologies, roles, working conditions, salaries, and locations are most in demand in the IT job market, and how do these factors vary over time?**
-
-The project is built around seven analytical questions:
-
-1. Which IT roles have the highest demand?
-2. Which skills and technologies are most requested for each role?
-3. How do required skills change with seniority?
-4. How does demand vary by geographic location?
-5. How common are **Remote, Hybrid, and On-site** positions across roles and locations?
-6. When salary data is available, what relationships exist between **salary, role, seniority, skills, and location**?
-7. How does the IT job market evolve over time?
-
-These questions define the analytical scope of the project and guide the transformation, data modelling, SQL analysis, and visualization stages.
-
-> **Note:** Not every question is fully answerable with the current dataset.
->
-> Some fields, such as skills, seniority, work mode, and salary information, have different levels of coverage across the two APIs. Meaningful trend analysis will also require data collected across multiple points in time.
+| Metric | Value |
+| --- | ---: |
+| Job postings | 13,161 |
+| Adzuna jobs | 3,161 |
+| FreeHire jobs | 10,000 |
+| Unique skills | 774 |
+| Job-skill relationships | 82,262 |
 
 ---
 
-## 🏗️ Pipeline Architecture
-
-The project follows a layered architecture where each stage has a clearly defined responsibility:
+## Architecture
 
 ```text
-┌──────────────────────┐
-│   External Job APIs  │
-│ Adzuna  │  FreeHire  │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  Python Extraction   │  ✅
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│     Raw JSON Data    │  ✅
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ Python Transformation│  ✅
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  Processed JSON Data │  ✅
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│  PostgreSQL Loading  │  ✅
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│     SQL Analysis     │  🚧
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│       Power BI       │  📋
-└──────────────────────┘
+External APIs
+     │
+     ▼
+Python Extraction
+     │
+     ▼
+Raw JSON
+     │
+     ▼
+Python / Pandas Transformation
+     │
+     ▼
+Processed JSON
+     │
+     ▼
+PostgreSQL
+     │
+     ├── Data Profiling
+     │
+     └── SQL Analysis
+              │
+              ▼
+           Power BI
+           (planned)
 ```
 
-**Legend:** ✅ Implemented · 🚧 Next milestone · 📋 Planned
-
-The architecture evolves only when new requirements justify it.
+The pipeline separates ingestion, transformation, storage, and analysis so that each stage can be rerun and debugged independently.
 
 ---
 
-## 🌐 Data Sources
-
-The current pipeline uses two job-market APIs.
+## Data Sources
 
 ### Adzuna
 
-Adzuna is one of the primary sources used by the extraction layer.
+Adzuna is used to collect a broad sample of IT job postings from Italy.
 
-The extractor handles:
+The extraction layer handles pagination, request timeouts, retries, HTTP response validation, and detection of repeated pages through source job IDs.
 
-- paginated HTTP requests;
-- HTTP response validation;
-- explicit request timeouts;
-- retry handling;
-- job ID tracking during pagination;
-- raw JSON persistence.
+A current extraction collected:
 
-A current extraction run produced:
-
-| Metric | Result |
+| Stage | Records |
 | --- | ---: |
-| Raw records | **5,000** |
-| Unique Adzuna job IDs | **4,613** |
-
-That difference is important.
-
-The extraction layer **does not silently remove duplicate records**. Raw data represents what was actually collected from the source. Duplicate handling is performed explicitly during transformation.
+| Raw API records | 5,000 |
+| Unique source IDs before service-request filtering | 4,613 |
+| Final jobs after filtering and deduplication | 3,161 |
 
 ### FreeHire
 
-FreeHire provides the second source of job-market data.
+FreeHire provides technology-related job postings associated with Italy and exposes additional structured fields such as skills, seniority, work mode, and city information.
 
-The current extraction targets technology-related job listings in Italy and handles:
+The current extraction collects the first 10,000 records allowed by the API's deep-pagination constraint.
 
-- paginated API requests;
-- batches of up to 100 records;
-- HTTP response validation;
-- request timeouts;
-- retry handling;
-- API pagination constraints;
-- raw JSON persistence.
-
-A current extraction run produced:
-
-| Metric | Result |
+| Stage | Records |
 | --- | ---: |
-| Raw records | **10,000** |
-| Unique source job IDs | **10,000** |
+| Raw API records | 10,000 |
+| Final records after deduplication | 10,000 |
 
-### Why Two Sources?
-
-Using two APIs is not simply about collecting more rows.
-
-It creates a real **data integration problem**:
-
-```text
-         ADZUNA
-            │
-            │ different schema
-            │
-            ▼
-      ┌──────────┐
-      │  Common  │
-      │   Data   │ ─────► PostgreSQL
-      │  Model   │
-      └──────────┘
-            ▲
-            │
-            │ different schema
-            │
-         FREEHIRE
-```
-
-Adzuna and FreeHire represent similar concepts using different fields, structures, pagination systems, and levels of completeness.
-
-The transformation layer converts both representations into a shared schema while preserving source identity and missing information where a reliable mapping is not available.
-
-### What Happened to Jooble?
-
-Jooble was evaluated during the early development phase as a possible additional source.
-
-After experimentation, it was **not retained in the current pipeline** because the returned results did not provide sufficient reliability for the intended analytical scope.
-
-Temporary Jooble test files were subsequently removed so that the repository reflects the architecture actually being developed rather than keeping abandoned experiments as production components.
-
-> **Engineering principle:** another API is useful only when the value it provides justifies the additional ingestion and normalization complexity.
+The two APIs expose similar concepts through different schemas and levels of completeness. The transformation layer maps them into a shared representation.
 
 ---
 
-## 📥 Extraction Layer
+## Extraction
 
-The extraction layer is implemented in:
+Implemented in:
 
 ```text
 src/extract.py
 ```
 
-and produces:
+The extraction layer is responsible for:
+
+- calling the external APIs;
+- handling source-specific pagination;
+- applying request timeouts and retry logic;
+- validating HTTP responses;
+- detecting Adzuna pagination saturation through job IDs;
+- preserving the collected API records as raw JSON.
+
+Raw data is stored before transformation:
 
 ```text
-data/
-└── raw/
-    ├── adzuna_jobs.json
-    └── freehire_jobs.json
+data/raw/
+├── adzuna_jobs.json
+└── freehire_jobs.json
 ```
 
-Its responsibility is deliberately narrow:
-
-```text
-API Request
-    │
-    ▼
-Validate Response
-    │
-    ▼
-Handle Pagination
-    │
-    ▼
-Collect Records
-    │
-    ▼
-Persist Raw JSON
-```
-
-### What extraction does — and does not do
-
-| Extraction does | Extraction does **not** do |
-| --- | --- |
-| Call external APIs | Deduplicate records |
-| Handle pagination | Normalize fields |
-| Validate HTTP responses | Clean values |
-| Retry transient failures | Integrate schemas |
-| Preserve raw records | Load PostgreSQL |
-| Save JSON files | Perform analytics |
-
-Keeping those responsibilities separate makes each pipeline stage easier to reason about, debug, test, and modify.
+Raw data is intentionally preserved rather than cleaned during ingestion. This allows transformation logic to be rerun without repeatedly calling the APIs and keeps source data available for debugging.
 
 ---
 
-## 🛡️ Making Extraction More Reliable
+## Transformation
 
-Real APIs are less predictable than local CSV files.
-
-Requests can fail. Servers can respond slowly. Pagination rules differ between providers. Rate limits and source constraints need to be respected.
-
-The current extraction layer therefore includes several defensive mechanisms.
-
-**Timeouts** prevent the pipeline from waiting indefinitely for an external service.
-
-**Retries** allow transient request failures to be attempted again instead of immediately terminating extraction.
-
-**HTTP validation** ensures unsuccessful responses are detected before their contents are processed.
-
-**Source-specific pagination** prevents the pipeline from assuming that every API exposes data in the same way.
-
-These mechanisms are intentionally implemented at the ingestion boundary, where external failures first enter the pipeline.
-
----
-
-## 🗃️ Why Keep Raw Data?
-
-The project persists API responses **before transformation**:
-
-```text
-SOURCE
-   │
-   ▼
- RAW        ← preserve what was collected
-   │
-   ▼
-TRANSFORM   ← clean, normalize, integrate
-   │
-   ▼
-DATABASE
-   │
-   ▼
-ANALYTICS
-```
-
-This separation means that:
-
-- transformations can be rerun without calling the APIs again;
-- transformation bugs do not automatically require re-extraction;
-- original source records remain available for debugging;
-- differences between APIs can be inspected later;
-- cleaning decisions remain separate from ingestion.
-
-It also explains why duplicates may legitimately exist in `data/raw/`.
-
-For example:
-
-```text
-Adzuna extraction
-────────────────────────────
-5,000 raw records
-4,613 unique source IDs
-────────────────────────────
-387 repeated IDs observed
-```
-
-Those records are preserved intentionally and deduplicated explicitly during transformation.
-
----
-
-## 🔎 A Problem We Hit Early: What Should We Search For?
-
-The first extraction experiments searched specifically for:
-
-```text
-Data Engineer
-```
-
-The results were relevant, but the query was too restrictive for a project intended to analyze the broader IT job market.
-
-That exposed a classic trade-off between **precision and coverage**.
-
-A narrow query provides higher precision but lower coverage. A broader query increases coverage but also introduces records that may later require additional filtering or classification.
-
-For this project, the extraction strategy evolved toward broader technology-job collection.
-
-More detailed filtering and classification can happen downstream, where the logic can be inspected, tested, and changed without repeatedly querying the APIs.
-
----
-
-## 🔄 Transformation Layer
-
-The transformation layer is implemented in:
+Implemented in:
 
 ```text
 src/transform.py
 ```
 
-Its purpose is to convert the two heterogeneous raw API datasets into a consistent representation suitable for downstream storage and analysis.
-
-The transformation currently performs:
-
-- source-specific field mapping;
-- schema normalization;
-- within-source deduplication using source job IDs;
-- integration of Adzuna and FreeHire records;
-- missing-value normalization;
-- publication-date parsing and validation;
-- salary-range validation;
-- categorical validation;
-- required-field validation;
-- final dataset persistence.
-
-### Common Schema
-
-Both APIs are mapped to the following representation:
+Both sources are mapped into the following common schema:
 
 ```text
 source_job_id
@@ -351,6 +129,7 @@ source
 title
 company
 location
+city
 salary_min
 salary_max
 skills
@@ -359,512 +138,421 @@ work_mode
 published_date
 ```
 
-The `source` field preserves the origin of each record, while `source_job_id` preserves the identifier provided by that source.
+The transformation layer performs:
 
-Together:
+- source-specific field mapping;
+- within-source deduplication;
+- missing-value normalization;
+- conservative city derivation;
+- publication-date parsing;
+- salary-range validation;
+- categorical validation;
+- required-field validation;
+- integration of both sources into one processed dataset.
+
+The resulting dataset is stored in:
+
+```text
+data/processed/jobs.json
+```
+
+### Source Identity
+
+Each record retains:
 
 ```text
 (source, source_job_id)
 ```
 
-form the source-level identity used by the current pipeline.
+as its source-level identity.
 
-### Transformation Results
-
-A current transformation run produces:
-
-| Stage | Records |
-| --- | ---: |
-| Adzuna raw records | **5,000** |
-| Adzuna after deduplication | **4,613** |
-| FreeHire raw records | **10,000** |
-| FreeHire after deduplication | **10,000** |
-| **Final integrated dataset** | **14,613** |
-
-The final dataset contains no duplicate `(source, source_job_id)` pairs.
-
-### Data Validation
-
-The transformation layer performs several sanity and data-quality checks before saving the processed dataset.
-
-The current dataset passes validation for:
-
-- expected schema;
-- duplicate source identifiers;
-- salary ranges where both bounds are available;
-- allowed source values;
-- allowed work-mode values;
-- allowed seniority values;
-- publication-date parsing;
-- required identifiers and titles.
-
-Empty or whitespace-only locations are normalized to missing values rather than being represented as valid strings.
-
-### Source Coverage Is Not Uniform
-
-Not every API exposes the same information.
-
-FreeHire provides structured information for fields such as skills, seniority, and work mode, while equivalent structured fields are not consistently available from Adzuna.
-
-The pipeline therefore **does not fabricate missing information simply to make the schemas look complete**.
-
-For example, Adzuna skills are currently stored as missing rather than attempting unvalidated extraction from free-text descriptions.
-
-This means downstream analyses must take field coverage into account when interpreting results.
-
-### Salary Data
-
-Salary values are currently preserved as provided by each source.
-
-Exploratory validation showed values with potentially different salary periodicities or semantics. Without sufficient source metadata to normalize these values reliably, the pipeline deliberately avoids applying arbitrary transformations.
-
-Salary normalization is therefore a documented future improvement rather than an assumption embedded in version 1.
-
-### Deduplication Scope
-
-Deduplication currently happens **within each source** using its source job identifier.
-
-The pipeline does not attempt to determine whether an Adzuna posting and a FreeHire posting represent the same real-world vacancy.
-
-That would require cross-source record linkage or entity-resolution logic based on combinations of fields such as title, company, location, and potentially description.
-
-This additional complexity is intentionally outside the current version 1 scope.
-
-### Processed Output
-
-The transformed dataset is persisted as:
-
-```text
-data/
-└── processed/
-    └── jobs.json
-```
-
-JSON is retained for the processed layer because some fields, particularly `skills`, contain structured lists that can be represented naturally without flattening them into strings.
-
-The current processed dataset contains:
-
-```text
-14,613 records
-```
+Version 1 performs deduplication within each source only. It does not attempt cross-source entity resolution because determining whether two postings from different providers represent the same real-world vacancy would require additional matching logic and assumptions.
 
 ---
 
-## 🐘 PostgreSQL Load Layer
+## Data Quality Findings
 
-The transformed dataset is loaded into PostgreSQL by:
+### Non-job Adzuna Records
+
+SQL profiling revealed an unexpected concentration of historical Adzuna records from a company named `Ernesto`.
+
+Investigation showed that 1,452 unique records were customer service requests rather than job vacancies. They shared both:
 
 ```text
-src/load.py
+company = "Ernesto"
 ```
 
-The database schema is defined separately in:
+and titles beginning with:
+
+```text
+"I nostri clienti hanno richiesto"
+```
+
+A conservative filtering rule was added to the transformation layer using both conditions.
+
+This rule was introduced only after the anomaly was discovered through post-load SQL profiling.
+
+### Location and City
+
+Raw location values have inconsistent granularity across the two sources.
+
+The pipeline therefore preserves the original `location` field and derives a separate `city` field for geographic analysis.
+
+FreeHire exposes a structured `cities` list. A city is accepted only when exactly one usable city is available.
+
+Adzuna does not expose an equivalent structured city field, so the first component of its location display value is used only when it does not represent a country, region, or province.
+
+Known source inconsistencies are normalized conservatively, while ambiguous locations remain missing rather than being guessed.
+
+After normalization, 3,824 of the 13,161 records do not have a derived city.
+
+### Salary
+
+Salary data is preserved as provided by each source.
+
+Profiling showed both limited coverage and values whose periodicity or semantics cannot be reliably inferred from the available fields.
+
+For that reason, salary analysis is intentionally excluded from version 1 rather than applying arbitrary normalization rules.
+
+### Uneven Field Coverage
+
+Structured fields are not available uniformly across sources.
+
+In the current dataset:
+
+- Adzuna does not provide structured skills, seniority, or work-mode data used by the analytical layer;
+- FreeHire provides structured skills for 9,036 of its 10,000 records;
+- seniority and work-mode data are available only for subsets of FreeHire records.
+
+Analyses using these fields therefore describe the subset where the relevant structured data is available, not the entire Italian IT job market.
+
+---
+
+## PostgreSQL Data Model
+
+The database schema is defined in:
 
 ```text
 sql/schema.sql
 ```
 
-This keeps the database structure explicit and version-controlled rather than embedding table creation inside the loading logic.
-
-### Relational Data Model
-
-The PostgreSQL layer uses three tables:
+and loaded by:
 
 ```text
-┌──────────────────────┐
-│        jobs          │
-├──────────────────────┤
-│ job_id          PK   │
-│ source_job_id        │
-│ source               │
-│ title                │
-│ company              │
-│ location             │
-│ salary_min           │
-│ salary_max           │
-│ seniority            │
-│ work_mode            │
-│ published_date       │
-└──────────┬───────────┘
-           │
-           │ 1:N
-           ▼
-┌──────────────────────┐
-│     job_skills       │
-├──────────────────────┤
-│ job_id       PK, FK  │
-│ skill_id     PK, FK  │
-└──────────┬───────────┘
-           │
-           │ N:1
-           ▼
-┌──────────────────────┐
-│       skills         │
-├──────────────────────┤
-│ skill_id        PK   │
-│ skill_name    UNIQUE │
-└──────────────────────┘
+src/load.py
 ```
 
-The `jobs` table uses a PostgreSQL-generated `job_id` as its internal primary key.
+The relational model contains three tables:
 
-Source-level identity is preserved through the unique pair:
+```text
+jobs
+ ├── job_id (PK)
+ ├── source_job_id
+ ├── source
+ ├── title
+ ├── company
+ ├── location
+ ├── city
+ ├── salary_min
+ ├── salary_max
+ ├── seniority
+ ├── work_mode
+ └── published_date
+
+skills
+ ├── skill_id (PK)
+ └── skill_name (UNIQUE)
+
+job_skills
+ ├── job_id (PK, FK)
+ └── skill_id (PK, FK)
+```
+
+A job can contain many skills and the same skill can belong to many jobs.
+
+This is represented as a many-to-many relationship through the `job_skills` junction table rather than storing skill lists directly inside `jobs`.
+
+The pair:
 
 ```text
 (source, source_job_id)
 ```
 
-This prevents two records from the same source from sharing the same source identifier while allowing identifiers from different providers to coexist.
+is also constrained to be unique.
 
-### Why Normalize Skills?
+---
 
-A job can require many skills, and the same skill can appear in many jobs.
+## Loading Strategy
 
-This is a genuine **many-to-many relationship**, so skills are represented separately rather than stored as a serialized list inside the relational model.
+Version 1 uses a full-refresh load.
 
-The `job_skills` junction table connects jobs and skills through their generated identifiers.
-
-This allows queries such as:
-
-```sql
-SELECT jobs.title, skills.skill_name
-FROM jobs
-INNER JOIN job_skills
-    ON jobs.job_id = job_skills.job_id
-INNER JOIN skills
-    ON skills.skill_id = job_skills.skill_id;
-```
-
-and provides a relational foundation for later analyses of skill demand and skill combinations.
-
-### Loading Strategy
-
-Version 1 uses a **full-refresh loading strategy**.
-
-Before inserting the current processed dataset, the loader executes:
+Before loading the processed dataset, PostgreSQL executes:
 
 ```sql
 TRUNCATE job_skills, jobs, skills RESTART IDENTITY;
 ```
 
-The previous database state is therefore replaced by the latest processed dataset rather than incrementally updated.
+The refresh and all subsequent inserts execute inside the same transaction.
 
-This approach was selected because:
+The transaction is committed only after the complete load succeeds and row counts have been validated. If an exception occurs, the transaction is rolled back.
 
-- the current dataset is small enough to reload efficiently;
-- `jobs.json` represents the complete processed dataset for the current run;
-- it keeps version 1 loading logic simple and reproducible;
-- incremental loading would introduce additional state-management complexity that is not yet required.
+The loader also validates that fields mapped to scalar PostgreSQL columns do not contain nested Python objects before inserting data.
 
-The full refresh and all subsequent inserts execute inside the same database transaction.
-
-The transaction is committed only after the complete load and validation queries succeed. This prevents the `TRUNCATE` from being persisted independently of the replacement data.
-
-### Loading Process
-
-The current loader performs the following steps:
-
-```text
-Processed JSON
-      │
-      ▼
-Full database refresh
-      │
-      ▼
-Extract unique skills
-      │
-      ▼
-Insert skills
-      │
-      ▼
-Build skill_name → skill_id mapping
-      │
-      ▼
-Insert jobs
-      │
-      ▼
-Create job-skill relationships
-      │
-      ▼
-Validate loaded row counts
-      │
-      ▼
-Commit transaction
-```
-
-PostgreSQL-generated IDs are retrieved during loading so that each job can be associated with the correct rows in the `skills` table.
-
-### Current Database Results
-
-A complete load currently produces:
+Current load result:
 
 | Table | Rows |
 | --- | ---: |
-| `jobs` | **14,613** |
-| `skills` | **774** |
-| `job_skills` | **82,262** |
-
-The loader has also been tested by running it again against an already populated database.
-
-Because version 1 performs a full refresh, the second run completes successfully and reproduces the same database state without accumulating duplicate records.
+| `jobs` | 13,161 |
+| `skills` | 774 |
+| `job_skills` | 82,262 |
 
 ---
 
-## 📊 Analysis & Visualization
+## SQL Profiling
 
-> 🚧 **Next development milestone**
+Data profiling is stored in:
 
-With the transformed data now available in PostgreSQL, SQL will be used to investigate the analytical questions defined at the beginning of the project.
+```text
+sql/data_profiling.sql
+```
 
-Potential areas of analysis include:
+Profiling covers:
 
-**Roles & Skills**
+| Area | Purpose |
+| --- | --- |
+| Source composition | Understand dataset balance |
+| Missing values | Measure field coverage by source |
+| Duplicate IDs | Validate source-level uniqueness |
+| Seniority | Inspect available categories |
+| Work mode | Inspect available categories |
+| Publication dates | Understand temporal coverage |
+| Salary | Measure coverage and inspect suspicious values |
+| Skills | Measure structured skill coverage by source |
 
-Demand by IT role, commonly requested technologies, and relationships between skills and seniority where data coverage supports the analysis.
+Profiling is treated separately from analytical SQL.
 
-**Geography**
-
-Distribution of opportunities across locations and differences between geographical areas.
-
-**Working Conditions**
-
-Remote, hybrid, and on-site opportunities across roles and locations.
-
-**Salary**
-
-Salary distributions and relationships with role, location, seniority, and skills where sufficient and comparable salary information exists.
-
-**Time**
-
-Changes in demand across different collection periods once enough historical observations have been accumulated.
-
-### Power BI
-
-Power BI is planned as the final visualization layer.
-
-The dashboard will be an interface over the dataset produced by the pipeline — **not the main purpose of the project**.
-
-The final dashboard will be designed around what the completed dataset can genuinely support.
+Its purpose is to understand what the dataset can reliably support before drawing conclusions from it.
 
 ---
 
-## 🧰 Technology Stack
+## SQL Analysis
 
-| | Technology | Role |
-| --- | --- | --- |
-| 🐍 | **Python** | Pipeline implementation |
-| 🌐 | **Requests** | API communication |
-| `{ }` | **JSON** | Raw and processed data persistence |
-| 🔐 | **python-dotenv** | Environment variables and configuration |
-| 🐼 | **Pandas** | Transformation and data validation |
-| 🐘 | **PostgreSQL** | Relational data storage |
-| 🔌 | **Psycopg** | Python–PostgreSQL communication |
-| 🗄️ | **SQL** | Schema definition, validation & analysis |
-| 🌿 | **Git** | Version control |
-| 🐙 | **GitHub** | Repository & documentation |
-| 📊 | **Power BI** | Visualization — planned |
-| 🐳 | **Docker** | Reproducibility — under evaluation |
+Analytical queries are stored in:
 
-> Technologies are added when they solve a concrete engineering problem, not simply to make the stack longer.
+```text
+sql/analysis.sql
+```
+
+The current analytical layer includes:
+
+| Analysis | Question |
+| --- | --- |
+| Top cities | Where are the most postings located? |
+| Top skills | Which structured skills appear most frequently? |
+| Work-mode distribution | How are hybrid, onsite, and remote postings distributed? |
+| Seniority distribution | How are available seniority categories distributed? |
+| Junior skills | Which skills appear most frequently in junior postings? |
+| Junior vs Senior skills | How does skill prevalence differ by seniority? |
+| Work mode by seniority | Does work-mode distribution differ between junior and senior postings? |
+| Skill co-occurrence | Which skill pairs most frequently appear in the same posting? |
+
+The queries use relational and analytical SQL techniques including:
+
+```text
+JOIN
+many-to-many relationships
+COUNT(DISTINCT ...)
+FILTER
+CTEs
+window functions
+PARTITION BY
+CROSS JOIN
+self-joins
+```
+
+### Selected Findings
+
+The current snapshot shows:
+
+| Finding | Result |
+| --- | --- |
+| Most frequent derived city | Milano — 2,845 postings |
+| Most frequent structured skill | AI — 3,410 postings |
+| Other frequent skills | Cloud 2,928 · Java 2,359 · SQL 2,304 · Python 2,259 |
+| Most frequent skill pair | AI + Cloud — 1,436 postings |
+| Python + AI co-occurrence | 1,175 postings |
+
+Work mode also differs substantially between the available Junior and Senior subsets:
+
+| Seniority | Hybrid | Onsite | Remote |
+| --- | ---: | ---: | ---: |
+| Junior | 54.43% | 42.41% | 3.16% |
+| Senior | 46.98% | 28.87% | 24.15% |
+
+These percentages are calculated only from postings where both seniority and work-mode data are available: 158 Junior postings and 530 Senior postings.
+
+They should therefore be interpreted as characteristics of the available dataset, not as estimates for the entire Italian job market.
 
 ---
 
-## 🗺️ Roadmap
+## Project Structure
+
+```text
+it-job-market-analytics/
+│
+├── src/
+│   ├── extract.py
+│   ├── transform.py
+│   └── load.py
+│
+├── sql/
+│   ├── schema.sql
+│   ├── data_profiling.sql
+│   └── analysis.sql
+│
+├── data/
+│   ├── raw/
+│   └── processed/
+│
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
+
+Raw and processed datasets are excluded from Git because they are generated pipeline outputs.
+
+---
+
+## Running the Project
+
+### Requirements
+
+The project requires:
+
+```text
+Python
+PostgreSQL
+Adzuna API credentials
+```
+
+Install the Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create a `.env` file containing:
+
+```env
+ADZUNA_APP_ID=
+ADZUNA_APP_KEY=
+
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=it_job_market
+DB_USER=postgres
+DB_PASSWORD=
+```
+
+Create the PostgreSQL database and apply:
+
+```text
+sql/schema.sql
+```
+
+Then execute the pipeline in order:
+
+```bash
+python src/extract.py
+python src/transform.py
+python src/load.py
+```
+
+The SQL profiling and analytical queries can then be executed against the populated PostgreSQL database.
+
+---
+
+## Technology Stack
+
+| Technology | Purpose |
+| --- | --- |
+| Python | Pipeline implementation |
+| Requests | API ingestion |
+| Pandas | Transformation and validation |
+| JSON | Raw and processed persistence |
+| PostgreSQL | Relational storage |
+| Psycopg | Python/PostgreSQL integration |
+| SQL | Profiling and analysis |
+| python-dotenv | Environment configuration |
+| Git / GitHub | Version control and documentation |
+| Power BI | Visualization — next milestone |
+
+---
+
+## Key Engineering Decisions
+
+| Decision | Reason |
+| --- | --- |
+| Preserve raw API responses | Keep ingestion reproducible and transformations debuggable |
+| Separate extraction and transformation | Keep pipeline responsibilities explicit |
+| Use source-specific ingestion logic | The APIs expose different schemas and pagination behavior |
+| Deduplicate after extraction | Raw data should represent what was actually collected |
+| Preserve `(source, source_job_id)` | External IDs belong to separate source namespaces |
+| Avoid cross-source deduplication in v1 | Reliable entity resolution requires additional assumptions |
+| Normalize skills relationally | Jobs and skills form a genuine many-to-many relationship |
+| Preserve missing data | Missing information is preferable to fabricated values |
+| Derive city conservatively | Raw location values have inconsistent granularity |
+| Exclude salary analysis | Current salary coverage and semantics are not reliable enough |
+| Avoid temporal trend claims | The dataset is a current snapshot with uneven historical coverage |
+| Use full-refresh loading | The dataset is small enough that incremental state is unnecessary in v1 |
+| Use a transaction for loading | Prevent partially refreshed database states |
+| Avoid unnecessary technologies | New tools are added only when they solve a concrete problem |
+
+---
+
+## Current Limitations
+
+The current dataset is a practical engineering dataset, not a statistically representative sample of the entire Italian IT labour market.
+
+Important limitations include:
+
+- different field coverage between Adzuna and FreeHire;
+- structured skill data primarily coming from FreeHire;
+- incomplete seniority and work-mode coverage;
+- incomplete and semantically inconsistent salary data;
+- conservative city derivation with missing values retained when location is ambiguous;
+- no cross-source entity resolution;
+- FreeHire extraction limited to the first 10,000 records allowed by its deep-pagination constraint;
+- no historical snapshot collection yet.
+
+These limitations are treated as part of the analytical context rather than hidden through aggressive cleaning.
+
+---
+
+## Roadmap
 
 | Milestone | Status |
 | --- | :---: |
-| Define project objective | ✅ |
-| Define analytical questions | ✅ |
-| Investigate job-data APIs | ✅ |
-| Experiment with extraction strategies | ✅ |
-| Implement Adzuna extraction | ✅ |
-| Implement FreeHire extraction | ✅ |
-| Add extraction error handling | ✅ |
-| Persist raw JSON datasets | ✅ |
-| Design transformation rules | ✅ |
-| Implement `transform.py` | ✅ |
-| Deduplicate source records | ✅ |
-| Integrate source schemas | ✅ |
-| Validate transformed data | ✅ |
-| Persist processed dataset | ✅ |
-| Design PostgreSQL schema | ✅ |
-| Implement relational model | ✅ |
-| Implement `load.py` | ✅ |
-| Load transformed data into PostgreSQL | ✅ |
-| Validate relational data and joins | ✅ |
-| **Write analytical SQL queries** | **🚧** |
-| Build Power BI analysis | 📋 |
-| Add automated tests | 📋 |
-| Improve logging & observability | 📋 |
-| Evaluate Dockerization | 📋 |
-| Create final architecture diagram | 📋 |
-| Add screenshots & results | 📋 |
-| Finalize documentation | 📋 |
+| API investigation | ✅ |
+| Multi-source extraction | ✅ |
+| Raw data persistence | ✅ |
+| Transformation and validation | ✅ |
+| Data-quality filtering | ✅ |
+| PostgreSQL relational model | ✅ |
+| Transactional database loading | ✅ |
+| SQL data profiling | ✅ |
+| SQL analysis | ✅ |
+| Power BI dashboard | 🚧 |
+| Final screenshots and documentation | 📋 |
+| Automated tests | 📋 |
+| Docker evaluation | 📋 |
 
 ---
 
-## 🧠 Engineering Decisions So Far
+## Next Step
 
-### Raw means raw
+The next milestone is **Power BI**.
 
-Source data is persisted before cleaning so that transformations remain reproducible and debuggable.
+The dashboard will visualize the analytical questions already validated through SQL rather than introducing new claims that the underlying dataset cannot support.
 
-### Extraction ≠ transformation
-
-Extraction retrieves data. Transformation changes its representation.
-
-Keeping the two separate prevents `extract.py` from becoming responsible for every stage of the pipeline.
-
-### Deduplication is explicit
-
-Repeated source IDs were observed during Adzuna extraction.
-
-Raw records remain untouched, while duplicates are explicitly handled during transformation.
-
-### Source identity is preserved
-
-Every transformed record retains both its source and its source-specific identifier.
-
-This allows records from different providers to coexist without assuming their identifiers belong to the same namespace.
-
-### Cross-source deduplication is a different problem
-
-Two records from different APIs may represent the same real-world vacancy, but determining this reliably requires entity-resolution logic.
-
-Version 1 therefore performs only within-source deduplication.
-
-### Missing data is better than invented data
-
-When one source does not provide a reliable equivalent for a field exposed by another source, the pipeline preserves the missing value instead of deriving information through unvalidated assumptions.
-
-### Salary values are not normalized without evidence
-
-The current sources expose salary information with incomplete or potentially different semantics.
-
-Version 1 preserves those values rather than applying arbitrary normalization rules.
-
-### Coverage won over an overly narrow search
-
-Searching only for `"Data Engineer"` produced high relevance but insufficient coverage for the broader analytical objective.
-
-The extraction strategy was widened accordingly.
-
-### Different APIs deserve different ingestion logic
-
-Adzuna and FreeHire have different schemas, constraints, and pagination behavior.
-
-They are handled independently during extraction and converge into a common representation during transformation.
-
-### Model the database after understanding the data
-
-The PostgreSQL schema was designed from the transformed dataset rather than prematurely imposing a relational structure on unknown source fields.
-
-### Skills are a relational entity
-
-Skills are not stored as a list inside the `jobs` table.
-
-Because jobs and skills have a genuine many-to-many relationship, they are normalized into `skills` and connected through `job_skills`.
-
-### Internal identity and source identity serve different purposes
-
-PostgreSQL generates an internal `job_id`, while `(source, source_job_id)` preserves the identity of a record within its original provider.
-
-Keeping both avoids coupling database relationships to external identifiers.
-
-### Version 1 uses full-refresh loading
-
-The processed JSON represents the complete current dataset and is small enough to reload efficiently.
-
-For that reason, version 1 replaces the previous database state rather than implementing incremental loading prematurely.
-
-### Loading is transactional
-
-The full refresh and subsequent inserts are committed as a single transaction.
-
-This ensures the database is not intentionally left in a partially refreshed state if the load does not complete successfully.
-
-### No technology for technology's sake
-
-Docker, orchestration tools, additional APIs, and other components will only be introduced when the project has a concrete reason to use them.
-
----
-
-## 🧪 Development Approach
-
-This repository is also a record of the engineering process behind the final pipeline.
-
-The project is being developed through small milestones:
-
-```text
-Problem
-   ↓
-Design
-   ↓
-Implement
-   ↓
-Run
-   ↓
-Inspect
-   ↓
-Find problems
-   ↓
-Improve
-   ↓
-Validate
-   ↓
-Document
-   ↓
-Repeat
-```
-
-That means the architecture is allowed to evolve.
-
-A discarded API, duplicated record, unexpected API behavior, or failed extraction strategy is not necessarily wasted work — each can reveal a constraint that improves the next version of the pipeline.
-
-The objective is not simply to end with a working repository, but to understand **why it works and why it was designed this way**.
-
----
-
-## 🔮 Future Improvements
-
-Version 1 has one priority:
-
-> **Finish a reliable end-to-end pipeline before making it more complex.**
-
-After that milestone, possible improvements include:
-
-- additional job-data sources;
-- advanced role classification;
-- improved skill extraction from descriptions;
-- salary-period and currency normalization;
-- cross-source entity resolution;
-- historical snapshots and richer trend analysis;
-- scheduled ingestion;
-- incremental database loading;
-- stronger automated data-quality validation;
-- improved logging and monitoring;
-- pipeline orchestration;
-- containerized execution.
-
-These are **future possibilities, not currently implemented features**.
-
----
-
-## 📍 Where the Project Is Now
-
-```text
-                               YOU ARE HERE
-                                    │
-                                    ▼
-API ──► EXTRACT ──► RAW ──► TRANSFORM ──► PROCESSED ──► POSTGRESQL ──► ANALYZE
-        ████████     ████████      ████████       ████████       ████████       ░░░░░░░░
-           ✅           ✅            ✅              ✅             ✅             🚧
-```
-
-### Next milestone
-
-**Use SQL to validate and explore the PostgreSQL dataset and answer the first analytical questions.**
-
----
-
-> **Note:** This README documents the project as it actually exists today. It will evolve alongside the pipeline as new components are implemented and new engineering decisions are made.
+The project will then receive a final documentation and reproducibility pass before version 1 is considered complete.
