@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres
+    container_name: project-zero-postgres
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "${DB_PORT}:5432"
+
+    volumes:
+      - project-zero-postgres-data:/var/lib/postgresql
+  etl:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  project-zero-postgres-data:
+    external: true
