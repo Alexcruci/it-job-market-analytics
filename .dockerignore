@@ -9,7 +9,6 @@ data/processed/
 # Not required by Python image
 docs/
 powerbi/
-sql/
 README.md
 
 # Local database backups
