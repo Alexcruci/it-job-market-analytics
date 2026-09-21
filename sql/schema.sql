@@ -1,4 +1,4 @@
-CREATE TABLE jobs (
+CREATE TABLE IF NOT EXISTS jobs (
     job_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     source_job_id TEXT NOT NULL,
     source TEXT NOT NULL,
@@ -14,12 +14,12 @@ CREATE TABLE jobs (
     UNIQUE (source, source_job_id)
 );
 
-CREATE TABLE skills (
+CREATE TABLE IF NOT EXISTS skills (
     skill_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     skill_name TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE job_skills (
+CREATE TABLE IF NOT EXISTS job_skills (
     job_id INTEGER REFERENCES jobs(job_id),
     skill_id INTEGER REFERENCES skills(skill_id),
     PRIMARY KEY (job_id, skill_id)
