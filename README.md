@@ -1,12 +1,18 @@
 # IT Job Market Data Pipeline
 
-An end-to-end Data Engineering project that collects technology job postings relevant to the Italian market, integrates heterogeneous API data, validates and transforms it, loads it into PostgreSQL, and analyzes the resulting dataset with SQL.
+An end-to-end Data Engineering project that collects technology job postings relevant to the Italian market, integrates heterogeneous API data, validates and transforms it, loads it into PostgreSQL, analyzes it with SQL, and presents the results through Power BI.
 
 The main goal of the project is not simply to analyze an existing dataset, but to build the pipeline that creates it.
 
 ## Project Status
 
-**Core data pipeline and SQL analysis complete. Power BI visualization is the next milestone.**
+**Version 1 complete.**
+
+The project currently implements the full data flow:
+
+```text
+APIs → Python Extraction → Raw JSON → Transformation → PostgreSQL → SQL Analysis → Power BI
+```
 
 Current database snapshot:
 
@@ -17,6 +23,30 @@ Current database snapshot:
 | FreeHire jobs | 10,000 |
 | Unique skills | 774 |
 | Job-skill relationships | 82,262 |
+
+---
+
+## Dashboard
+
+### Overview
+
+The first Power BI page provides a high-level view of the collected dataset, including seniority, work mode, skills, and geographic distribution.
+
+![Power BI dashboard overview](docs/images/overview.jpg)
+
+### Junior vs Senior
+
+The second page compares Junior and Senior postings across work-mode distribution and structured skill prevalence.
+
+![Junior vs Senior analysis](docs/images/junior_vs_senior.jpg)
+
+The Power BI report is available at:
+
+```text
+powerbi/it_job_market_dashboard.pbix
+```
+
+Analyses based on skills, seniority, and work mode refer only to records where the relevant structured fields are available. They should not be interpreted as statistically representative estimates of the entire Italian IT job market.
 
 ---
 
@@ -46,10 +76,9 @@ PostgreSQL
               │
               ▼
            Power BI
-           (planned)
 ```
 
-The pipeline separates ingestion, transformation, storage, and analysis so that each stage can be rerun and debugged independently.
+The pipeline separates ingestion, transformation, storage, analysis, and visualization so that each stage can be rerun and debugged independently.
 
 ---
 
@@ -61,7 +90,7 @@ Adzuna is used to collect a broad sample of IT job postings from Italy.
 
 The extraction layer handles pagination, request timeouts, retries, HTTP response validation, and detection of repeated pages through source job IDs.
 
-A current extraction collected:
+The current extraction produced:
 
 | Stage | Records |
 | --- | ---: |
@@ -99,7 +128,7 @@ The extraction layer is responsible for:
 - applying request timeouts and retry logic;
 - validating HTTP responses;
 - detecting Adzuna pagination saturation through job IDs;
-- preserving the collected API records as raw JSON.
+- preserving collected API records as raw JSON.
 
 Raw data is stored before transformation:
 
@@ -143,7 +172,7 @@ The transformation layer performs:
 - source-specific field mapping;
 - within-source deduplication;
 - missing-value normalization;
-- conservative city derivation;
+- conservative city derivation and normalization;
 - publication-date parsing;
 - salary-range validation;
 - categorical validation;
@@ -206,6 +235,31 @@ Known source inconsistencies are normalized conservatively, while ambiguous loca
 
 After normalization, 3,824 of the 13,161 records do not have a derived city.
 
+### BI Validation Feedback Loop
+
+Power BI validation exposed a discrepancy between the dashboard and an exact PostgreSQL query for Torino.
+
+The dashboard grouped 1,083 records while an exact SQL comparison initially returned 1,080.
+
+Further SQL profiling identified case variants such as:
+
+```text
+Torino
+torino
+```
+
+and similar inconsistencies for a small number of other cities.
+
+Instead of patching the visualization, the normalization logic was corrected upstream in the transformation layer and the dataset was reloaded.
+
+The final PostgreSQL result and Power BI visualization both report 1,083 postings for Torino.
+
+This provided a useful validation loop:
+
+```text
+ETL → Database → BI → Data-quality issue → ETL correction → Reload → Validation
+```
+
 ### Salary
 
 Salary data is preserved as provided by each source.
@@ -220,7 +274,7 @@ Structured fields are not available uniformly across sources.
 
 In the current dataset:
 
-- Adzuna does not provide structured skills, seniority, or work-mode data used by the analytical layer;
+- Adzuna does not provide the structured skills, seniority, or work-mode data used by the analytical layer;
 - FreeHire provides structured skills for 9,036 of its 10,000 records;
 - seniority and work-mode data are available only for subsets of FreeHire records.
 
@@ -343,7 +397,7 @@ Analytical queries are stored in:
 sql/analysis.sql
 ```
 
-The current analytical layer includes:
+The analytical layer includes:
 
 | Analysis | Question |
 | --- | --- |
@@ -382,7 +436,7 @@ The current snapshot shows:
 | Most frequent skill pair | AI + Cloud — 1,436 postings |
 | Python + AI co-occurrence | 1,175 postings |
 
-Work mode also differs substantially between the available Junior and Senior subsets:
+Work mode differs substantially between the available Junior and Senior subsets:
 
 | Seniority | Hybrid | Onsite | Remote |
 | --- | ---: | ---: | ---: |
@@ -392,6 +446,45 @@ Work mode also differs substantially between the available Junior and Senior sub
 These percentages are calculated only from postings where both seniority and work-mode data are available: 158 Junior postings and 530 Senior postings.
 
 They should therefore be interpreted as characteristics of the available dataset, not as estimates for the entire Italian job market.
+
+---
+
+## Power BI
+
+The Power BI report uses the PostgreSQL relational model as its analytical source.
+
+The model imports:
+
+```text
+jobs
+skills
+job_skills
+```
+
+with one-to-many relationships from `jobs` and `skills` to the `job_skills` junction table.
+
+The report contains two pages.
+
+### Overview
+
+Provides:
+
+- total job postings;
+- number of data sources;
+- number of unique structured skills;
+- seniority distribution;
+- work-mode distribution;
+- top 10 structured skills;
+- top 10 derived cities.
+
+### Junior vs Senior
+
+Compares:
+
+- work-mode distribution between Junior and Senior postings;
+- prevalence of the top structured skills between Junior and Senior subsets.
+
+The dashboard intentionally focuses on analyses supported by the available data rather than adding visualizations for fields with unreliable coverage or semantics.
 
 ---
 
@@ -409,6 +502,14 @@ it-job-market-analytics/
 │   ├── schema.sql
 │   ├── data_profiling.sql
 │   └── analysis.sql
+│
+├── powerbi/
+│   └── it_job_market_dashboard.pbix
+│
+├── docs/
+│   └── images/
+│       ├── overview.jpg
+│       └── junior_vs_senior.jpg
 │
 ├── data/
 │   ├── raw/
@@ -470,6 +571,16 @@ python src/load.py
 
 The SQL profiling and analytical queries can then be executed against the populated PostgreSQL database.
 
+To inspect the visualization layer, open:
+
+```text
+powerbi/it_job_market_dashboard.pbix
+```
+
+in Power BI Desktop.
+
+Refreshing the report from a different environment may require configuring the PostgreSQL data-source connection for that machine.
+
 ---
 
 ## Technology Stack
@@ -483,9 +594,9 @@ The SQL profiling and analytical queries can then be executed against the popula
 | PostgreSQL | Relational storage |
 | Psycopg | Python/PostgreSQL integration |
 | SQL | Profiling and analysis |
+| Power BI | Data visualization |
 | python-dotenv | Environment configuration |
 | Git / GitHub | Version control and documentation |
-| Power BI | Visualization — next milestone |
 
 ---
 
@@ -502,6 +613,7 @@ The SQL profiling and analytical queries can then be executed against the popula
 | Normalize skills relationally | Jobs and skills form a genuine many-to-many relationship |
 | Preserve missing data | Missing information is preferable to fabricated values |
 | Derive city conservatively | Raw location values have inconsistent granularity |
+| Fix data-quality issues upstream | BI discrepancies should be corrected in the pipeline rather than hidden in visualizations |
 | Exclude salary analysis | Current salary coverage and semantics are not reliable enough |
 | Avoid temporal trend claims | The dataset is a current snapshot with uneven historical coverage |
 | Use full-refresh loading | The dataset is small enough that incremental state is unnecessary in v1 |
@@ -529,7 +641,7 @@ These limitations are treated as part of the analytical context rather than hidd
 
 ---
 
-## Roadmap
+## Version 1
 
 | Milestone | Status |
 | --- | :---: |
@@ -542,17 +654,25 @@ These limitations are treated as part of the analytical context rather than hidd
 | Transactional database loading | ✅ |
 | SQL data profiling | ✅ |
 | SQL analysis | ✅ |
-| Power BI dashboard | 🚧 |
-| Final screenshots and documentation | 📋 |
-| Automated tests | 📋 |
-| Docker evaluation | 📋 |
+| Power BI dashboard | ✅ |
+| Dashboard screenshots | ✅ |
+| Project documentation | ✅ |
+
+**Version 1 is complete.**
 
 ---
 
-## Next Step
+## Possible Future Improvements
 
-The next milestone is **Power BI**.
+Potential future iterations could explore:
 
-The dashboard will visualize the analytical questions already validated through SQL rather than introducing new claims that the underlying dataset cannot support.
+- automated tests for transformation and loading logic;
+- cross-source job entity resolution;
+- historical snapshot collection;
+- improved geographic normalization;
+- more robust salary normalization if source semantics allow it;
+- containerization with Docker;
+- orchestration of the complete pipeline;
+- deployment to a cloud environment.
 
-The project will then receive a final documentation and reproducibility pass before version 1 is considered complete.
+These are intentionally outside the scope of version 1.
