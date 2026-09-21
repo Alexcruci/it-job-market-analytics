@@ -1,4 +1,4 @@
-requests
-python-dotenv
-pandas
-psycopg[binary]
+requests==2.34.2
+python-dotenv==1.2.3
+pandas==3.0.6
+psycopg[binary]==3.3.6
