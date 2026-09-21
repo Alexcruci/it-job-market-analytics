@@ -1,0 +1,20 @@
+# Secrets and local environment
+.env
+.venv/
+
+# Runtime-generated data
+data/raw/
+data/processed/
+
+# Not required by Python image
+docs/
+powerbi/
+sql/
+README.md
+
+# Local database backups
+postgres_backup.sql
+postgres_backup_safe.sql
+
+# Git metadata
+.git/

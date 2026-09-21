@@ -2,6 +2,9 @@ import json
 
 import pandas as pd
 
+from pathlib import Path
+
+Path("data/processed").mkdir(parents=True, exist_ok=True)
 
 ITALIAN_REGIONS = {
     "abruzzo",

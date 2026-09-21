@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+from pathlib import Path
+
+Path("data/raw").mkdir(parents=True, exist_ok=True)
 
 # Adzuna extraction
 # Define API parameters
