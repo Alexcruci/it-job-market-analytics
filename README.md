@@ -1,20 +1,38 @@
 # IT Job Market Data Pipeline
 
-An end-to-end Data Engineering project that collects technology job postings relevant to the Italian market, integrates heterogeneous API data, validates and transforms it, loads it into PostgreSQL, analyzes it with SQL, and presents the results through Power BI.
+An end-to-end Data Engineering project that collects technology job postings relevant to the Italian market, transforms heterogeneous API data into a shared schema, validates data quality, loads the resulting dataset into PostgreSQL, analyzes it with SQL, and presents selected findings through Power BI.
 
-The main goal of the project is not simply to analyze an existing dataset, but to build the pipeline that creates it.
+The project was built from scratch as a portfolio project to practice the complete lifecycle of a data pipeline rather than analyzing a pre-existing dataset.
+
+The current version also provides a reproducible Docker environment for running the ETL pipeline and PostgreSQL database without requiring a local Python or PostgreSQL installation.
+
+---
 
 ## Project Status
 
-**Version 1 complete.**
+### Version 1 — Complete
 
-The project currently implements the full data flow:
+Version 1 implements the complete local pipeline:
 
 ```text
-APIs → Python Extraction → Raw JSON → Transformation → PostgreSQL → SQL Analysis → Power BI
+External APIs
+      ↓
+Python Extraction
+      ↓
+Raw JSON
+      ↓
+Transformation & Validation
+      ↓
+Processed JSON
+      ↓
+PostgreSQL
+      ↓
+SQL Profiling & Analysis
+      ↓
+Power BI
 ```
 
-Current database snapshot:
+The Version 1 reference database contains:
 
 | Metric | Value |
 | --- | ---: |
@@ -24,98 +42,208 @@ Current database snapshot:
 | Unique skills | 774 |
 | Job-skill relationships | 82,262 |
 
+Because the APIs expose live data, new pipeline runs can produce different record counts.
+
+### Version 2 — In Progress
+
+Version 2 focuses on making the pipeline reproducible and deployable.
+
+The Docker milestone is complete:
+
+- Python ETL containerized;
+- PostgreSQL containerized;
+- multi-service orchestration with Docker Compose;
+- persistent PostgreSQL storage;
+- automatic schema initialization;
+- PostgreSQL health checks;
+- environment-based configuration;
+- reproducible dependency versions;
+- automatic `extract → transform → load` execution;
+- safe failure propagation;
+- validated fresh-clone execution.
+
+The next milestone is cloud deployment with Microsoft Azure.
+
 ---
 
 ## Dashboard
 
+The Version 1 dataset is explored through a two-page Power BI report.
+
 ### Overview
 
-The first Power BI page provides a high-level view of the collected dataset, including seniority, work mode, skills, and geographic distribution.
+The first page provides a high-level view of the dataset, including:
+
+- job-posting count;
+- source composition;
+- seniority distribution;
+- work-mode distribution;
+- most frequent structured skills;
+- most frequent derived cities.
 
 ![Power BI dashboard overview](docs/images/overview.jpg)
 
 ### Junior vs Senior
 
-The second page compares Junior and Senior postings across work-mode distribution and structured skill prevalence.
+The second page compares Junior and Senior postings across:
+
+- work-mode distribution;
+- structured skill prevalence.
 
 ![Junior vs Senior analysis](docs/images/junior_vs_senior.jpg)
 
-The Power BI report is available at:
+The report is stored in:
 
 ```text
 powerbi/it_job_market_dashboard.pbix
 ```
 
-Analyses based on skills, seniority, and work mode refer only to records where the relevant structured fields are available. They should not be interpreted as statistically representative estimates of the entire Italian IT job market.
+Analyses involving skills, seniority, or work mode use only records where the relevant structured fields are available.
+
+The dashboard should therefore be interpreted as an analysis of the collected dataset rather than a statistically representative estimate of the entire Italian technology labour market.
 
 ---
 
-## Architecture
+# Architecture
+
+## Data Pipeline
 
 ```text
-External APIs
-     │
-     ▼
-Python Extraction
-     │
-     ▼
-Raw JSON
-     │
-     ▼
-Python / Pandas Transformation
-     │
-     ▼
-Processed JSON
-     │
-     ▼
-PostgreSQL
-     │
-     ├── Data Profiling
-     │
-     └── SQL Analysis
-              │
-              ▼
-           Power BI
+                 External APIs
+                /             \
+               /               \
+          Adzuna              FreeHire
+               \               /
+                \             /
+                 ▼           ▼
+                   Extraction
+                       │
+                       ▼
+                    Raw JSON
+                       │
+                       ▼
+             Transformation Layer
+                       │
+              Cleaning & Validation
+                       │
+                       ▼
+                 Processed JSON
+                       │
+                       ▼
+                   PostgreSQL
+                  /          \
+                 /            \
+                ▼              ▼
+         SQL Profiling     SQL Analysis
+                                │
+                                ▼
+                             Power BI
 ```
 
-The pipeline separates ingestion, transformation, storage, analysis, and visualization so that each stage can be rerun and debugged independently.
+The pipeline separates ingestion, transformation, storage, analysis, and visualization so that each stage can be inspected and executed independently.
 
 ---
 
-## Data Sources
+## Docker Architecture
 
-### Adzuna
+Version 2 packages the runtime environment with Docker.
 
-Adzuna is used to collect a broad sample of IT job postings from Italy.
+```text
+                         Docker Compose
+                               │
+               ┌───────────────┴───────────────┐
+               │                               │
+               ▼                               ▼
+         ETL Container                 PostgreSQL Container
+       Python 3.14.7                     PostgreSQL 18.6
+               │                               │
+               │        Docker Network         │
+               └──────────────────────────────►│
+                                               │
+                                               ▼
+                                      PostgreSQL Volume
+                                       persistent state
 
-The extraction layer handles pagination, request timeouts, retries, HTTP response validation, and detection of repeated pages through source job IDs.
+               ▲
+               │
+         Bind Mount
+               │
+               ▼
+        Host ./data/
+```
 
-The current extraction produced:
+The ETL and database run as separate services.
 
-| Stage | Records |
-| --- | ---: |
-| Raw API records | 5,000 |
-| Unique source IDs before service-request filtering | 4,613 |
-| Final jobs after filtering and deduplication | 3,161 |
+The ETL container is temporary and can be recreated for every pipeline run.
 
-### FreeHire
+PostgreSQL state is stored in a Docker-managed named volume so that destroying and recreating the database container does not destroy the database.
 
-FreeHire provides technology-related job postings associated with Italy and exposes additional structured fields such as skills, seniority, work mode, and city information.
-
-The current extraction collects the first 10,000 records allowed by the API's deep-pagination constraint.
-
-| Stage | Records |
-| --- | ---: |
-| Raw API records | 10,000 |
-| Final records after deduplication | 10,000 |
-
-The two APIs expose similar concepts through different schemas and levels of completeness. The transformation layer maps them into a shared representation.
+Raw and processed JSON files remain accessible on the host through a bind mount.
 
 ---
 
-## Extraction
+# Data Sources
 
-Implemented in:
+## Adzuna
+
+Adzuna provides a broad sample of IT job postings from the Italian market.
+
+The extraction layer handles:
+
+- API authentication;
+- pagination;
+- request timeouts;
+- retries;
+- HTTP response validation;
+- transient HTTP failures;
+- repeated job IDs across pages;
+- pagination saturation.
+
+Transient responses currently retried include:
+
+```text
+429
+502
+503
+504
+```
+
+If extraction still fails after the configured retry attempts, the script terminates with an error.
+
+This behavior is important because an incomplete extraction must not silently continue into transformation and database loading.
+
+Adzuna can also return repeated records across pages. Source job IDs are therefore tracked during extraction.
+
+If a page contains no previously unseen IDs, extraction stops rather than continuing indefinitely through duplicated pages.
+
+---
+
+## FreeHire
+
+FreeHire provides technology-related job postings associated with Italy and exposes additional structured information such as:
+
+- skills;
+- seniority;
+- work mode;
+- city information.
+
+The current extraction collects records in batches of 100 up to the first 10,000 records supported by the API's deep-pagination constraint.
+
+---
+
+## Heterogeneous Source Schemas
+
+The two APIs describe similar concepts using different structures and different levels of completeness.
+
+The extraction layer preserves each source independently.
+
+The transformation layer is responsible for converting both sources into a common schema.
+
+---
+
+# Extraction
+
+Extraction is implemented in:
 
 ```text
 src/extract.py
@@ -123,14 +251,14 @@ src/extract.py
 
 The extraction layer is responsible for:
 
-- calling the external APIs;
+- requesting data from each API;
 - handling source-specific pagination;
-- applying request timeouts and retry logic;
+- retrying temporary failures;
 - validating HTTP responses;
-- detecting Adzuna pagination saturation through job IDs;
-- preserving collected API records as raw JSON.
+- detecting repeated source IDs;
+- preserving API responses as raw JSON.
 
-Raw data is stored before transformation:
+Generated raw files are stored in:
 
 ```text
 data/raw/
@@ -138,19 +266,23 @@ data/raw/
 └── freehire_jobs.json
 ```
 
-Raw data is intentionally preserved rather than cleaned during ingestion. This allows transformation logic to be rerun without repeatedly calling the APIs and keeps source data available for debugging.
+Raw records are preserved before cleaning.
+
+This allows transformation logic to be rerun without repeatedly calling external APIs and keeps the original collected data available for debugging.
+
+If the required data directories do not exist, the pipeline creates them automatically.
 
 ---
 
-## Transformation
+# Transformation
 
-Implemented in:
+Transformation is implemented in:
 
 ```text
 src/transform.py
 ```
 
-Both sources are mapped into the following common schema:
+Both sources are mapped to the following common representation:
 
 ```text
 source_job_id
@@ -172,22 +304,25 @@ The transformation layer performs:
 - source-specific field mapping;
 - within-source deduplication;
 - missing-value normalization;
-- conservative city derivation and normalization;
 - publication-date parsing;
 - salary-range validation;
 - categorical validation;
+- city derivation and normalization;
 - required-field validation;
-- integration of both sources into one processed dataset.
+- known non-job record filtering;
+- integration of both sources.
 
-The resulting dataset is stored in:
+The final processed dataset is written to:
 
 ```text
 data/processed/jobs.json
 ```
 
-### Source Identity
+---
 
-Each record retains:
+## Source Identity
+
+Each job retains the pair:
 
 ```text
 (source, source_job_id)
@@ -195,17 +330,33 @@ Each record retains:
 
 as its source-level identity.
 
-Version 1 performs deduplication within each source only. It does not attempt cross-source entity resolution because determining whether two postings from different providers represent the same real-world vacancy would require additional matching logic and assumptions.
+External IDs are not assumed to be globally unique because different providers operate in separate namespaces.
+
+Version 1 performs deduplication within each source.
+
+Cross-source entity resolution is intentionally not performed because determining whether two postings from different APIs represent the same real-world vacancy would require additional matching logic and assumptions.
 
 ---
 
-## Data Quality Findings
+# Data Quality Findings
 
-### Non-job Adzuna Records
+Data profiling is treated as part of the pipeline development process rather than only as a final analytical step.
 
-SQL profiling revealed an unexpected concentration of historical Adzuna records from a company named `Ernesto`.
+Several transformation rules were introduced only after anomalies were discovered in the loaded dataset.
 
-Investigation showed that 1,452 unique records were customer service requests rather than job vacancies. They shared both:
+---
+
+## Non-job Adzuna Records
+
+SQL profiling revealed an unexpected historical concentration of Adzuna records associated with a company named:
+
+```text
+Ernesto
+```
+
+Investigation showed that these records were customer service requests rather than employment vacancies.
+
+They shared both:
 
 ```text
 company = "Ernesto"
@@ -217,114 +368,152 @@ and titles beginning with:
 "I nostri clienti hanno richiesto"
 ```
 
-A conservative filtering rule was added to the transformation layer using both conditions.
+A conservative filter was introduced using both conditions.
 
-This rule was introduced only after the anomaly was discovered through post-load SQL profiling.
+The rule deliberately avoids broader keyword-based filtering that could accidentally remove legitimate jobs.
 
-### Location and City
+This issue was discovered after the data had already been loaded and profiled, producing the feedback loop:
 
-Raw location values have inconsistent granularity across the two sources.
+```text
+ETL
+ ↓
+PostgreSQL
+ ↓
+Profiling
+ ↓
+Data-quality anomaly
+ ↓
+Transformation fix
+ ↓
+Reload
+ ↓
+Validation
+```
 
-The pipeline therefore preserves the original `location` field and derives a separate `city` field for geographic analysis.
+---
 
-FreeHire exposes a structured `cities` list. A city is accepted only when exactly one usable city is available.
+## Location and City
 
-Adzuna does not expose an equivalent structured city field, so the first component of its location display value is used only when it does not represent a country, region, or province.
+Location values have inconsistent granularity across providers.
 
-Known source inconsistencies are normalized conservatively, while ambiguous locations remain missing rather than being guessed.
+The pipeline therefore preserves the raw:
 
-After normalization, 3,824 of the 13,161 records do not have a derived city.
+```text
+location
+```
 
-### BI Validation Feedback Loop
+while deriving a separate:
 
-Power BI validation exposed a discrepancy between the dashboard and an exact PostgreSQL query for Torino.
+```text
+city
+```
 
-The dashboard grouped 1,083 records while an exact SQL comparison initially returned 1,080.
+field for analysis.
 
-Further SQL profiling identified case variants such as:
+FreeHire exposes structured city information.
+
+A city is accepted only when exactly one usable city is available.
+
+Adzuna does not expose an equivalent structured city field, so a conservative heuristic is applied to the displayed location.
+
+Ambiguous values are kept missing rather than guessed.
+
+---
+
+## BI Validation Feedback Loop
+
+Power BI validation exposed a discrepancy between a dashboard city count and an exact PostgreSQL query.
+
+Further profiling identified case variants such as:
 
 ```text
 Torino
 torino
 ```
 
-and similar inconsistencies for a small number of other cities.
+Rather than correcting the visualization, city normalization was fixed upstream in the transformation layer.
 
-Instead of patching the visualization, the normalization logic was corrected upstream in the transformation layer and the dataset was reloaded.
+The pipeline was then rerun and both PostgreSQL and Power BI produced matching results.
 
-The final PostgreSQL result and Power BI visualization both report 1,083 postings for Torino.
+This reinforced a general project rule:
 
-This provided a useful validation loop:
-
-```text
-ETL → Database → BI → Data-quality issue → ETL correction → Reload → Validation
-```
-
-### Salary
-
-Salary data is preserved as provided by each source.
-
-Profiling showed both limited coverage and values whose periodicity or semantics cannot be reliably inferred from the available fields.
-
-For that reason, salary analysis is intentionally excluded from version 1 rather than applying arbitrary normalization rules.
-
-### Uneven Field Coverage
-
-Structured fields are not available uniformly across sources.
-
-In the current dataset:
-
-- Adzuna does not provide the structured skills, seniority, or work-mode data used by the analytical layer;
-- FreeHire provides structured skills for 9,036 of its 10,000 records;
-- seniority and work-mode data are available only for subsets of FreeHire records.
-
-Analyses using these fields therefore describe the subset where the relevant structured data is available, not the entire Italian IT job market.
+> Data-quality problems should be corrected as far upstream as reasonably possible rather than hidden in downstream analysis.
 
 ---
 
-## PostgreSQL Data Model
+## Salary
 
-The database schema is defined in:
+Salary values are preserved when available.
+
+However, coverage is limited and the available source fields do not always provide enough information to determine the meaning or periodicity of the values safely.
+
+Salary analysis is therefore intentionally excluded from the Version 1 dashboard rather than applying arbitrary normalization assumptions.
+
+---
+
+## Uneven Field Coverage
+
+Structured fields are not available uniformly across sources.
+
+In particular:
+
+- structured skill coverage differs significantly between providers;
+- seniority is available only for a subset of records;
+- work mode is available only for a subset of records;
+- salary coverage is incomplete;
+- geographic precision varies between sources.
+
+Analyses involving these fields describe only the subset for which usable data exists.
+
+---
+
+# PostgreSQL Data Model
+
+The relational schema is defined in:
 
 ```text
 sql/schema.sql
 ```
 
-and loaded by:
-
-```text
-src/load.py
-```
-
-The relational model contains three tables:
+The database contains three tables:
 
 ```text
 jobs
- ├── job_id (PK)
- ├── source_job_id
- ├── source
- ├── title
- ├── company
- ├── location
- ├── city
- ├── salary_min
- ├── salary_max
- ├── seniority
- ├── work_mode
- └── published_date
+├── job_id (PK)
+├── source_job_id
+├── source
+├── title
+├── company
+├── location
+├── city
+├── salary_min
+├── salary_max
+├── seniority
+├── work_mode
+└── published_date
+
 
 skills
- ├── skill_id (PK)
- └── skill_name (UNIQUE)
+├── skill_id (PK)
+└── skill_name (UNIQUE)
+
 
 job_skills
- ├── job_id (PK, FK)
- └── skill_id (PK, FK)
+├── job_id (PK, FK)
+└── skill_id (PK, FK)
 ```
 
-A job can contain many skills and the same skill can belong to many jobs.
+Jobs and skills form a many-to-many relationship.
 
-This is represented as a many-to-many relationship through the `job_skills` junction table rather than storing skill lists directly inside `jobs`.
+A job can contain multiple skills and the same skill can appear in multiple jobs.
+
+The relationship is therefore represented through the junction table:
+
+```text
+job_skills
+```
+
+rather than storing skill arrays directly in the `jobs` table.
 
 The pair:
 
@@ -332,13 +521,43 @@ The pair:
 (source, source_job_id)
 ```
 
-is also constrained to be unique.
+is constrained to be unique.
 
 ---
 
-## Loading Strategy
+# Database Initialization
 
-Version 1 uses a full-refresh load.
+When using Docker Compose, the PostgreSQL schema is initialized automatically.
+
+The repository file:
+
+```text
+sql/schema.sql
+```
+
+is mounted inside the PostgreSQL container at:
+
+```text
+/docker-entrypoint-initdb.d/01-schema.sql
+```
+
+The official PostgreSQL image executes initialization scripts in this directory when a new empty database volume is created.
+
+This allows a fresh project environment to create its database schema without manually entering PostgreSQL or executing SQL commands.
+
+Initialization scripts are not rerun when an existing PostgreSQL volume is reused.
+
+---
+
+# Loading Strategy
+
+Loading is implemented in:
+
+```text
+src/load.py
+```
+
+The project currently uses a full-refresh strategy.
 
 Before loading the processed dataset, PostgreSQL executes:
 
@@ -346,50 +565,90 @@ Before loading the processed dataset, PostgreSQL executes:
 TRUNCATE job_skills, jobs, skills RESTART IDENTITY;
 ```
 
-The refresh and all subsequent inserts execute inside the same transaction.
+The refresh and subsequent inserts execute inside the same database transaction.
 
-The transaction is committed only after the complete load succeeds and row counts have been validated. If an exception occurs, the transaction is rolled back.
+The transaction is committed only after the load completes successfully.
 
-The loader also validates that fields mapped to scalar PostgreSQL columns do not contain nested Python objects before inserting data.
+If an exception occurs, the transaction is rolled back.
 
-Current load result:
+This prevents the database from being left in a partially refreshed state.
 
-| Table | Rows |
-| --- | ---: |
-| `jobs` | 13,161 |
-| `skills` | 774 |
-| `job_skills` | 82,262 |
+The loader also validates fields mapped to scalar PostgreSQL columns before insertion.
 
 ---
 
-## SQL Profiling
+# Pipeline Failure Safety
 
-Data profiling is stored in:
+The complete Docker pipeline executes:
+
+```text
+extract
+   &&
+transform
+   &&
+load
+```
+
+The shell `&&` operator means that each stage runs only when the previous stage exits successfully.
+
+Extraction errors therefore propagate as non-zero process exit codes.
+
+The resulting behavior is:
+
+```text
+Successful extraction
+        ↓
+Transformation
+        ↓
+Load
+```
+
+while:
+
+```text
+Failed extraction
+        ↓
+Pipeline stops
+        ↓
+Transformation not executed
+        ↓
+Load not executed
+        ↓
+Existing database remains unchanged
+```
+
+This behavior was explicitly tested using invalid API credentials.
+
+---
+
+# SQL Profiling
+
+Profiling queries are stored in:
 
 ```text
 sql/data_profiling.sql
 ```
 
-Profiling covers:
+Profiling covers areas including:
 
 | Area | Purpose |
 | --- | --- |
 | Source composition | Understand dataset balance |
-| Missing values | Measure field coverage by source |
-| Duplicate IDs | Validate source-level uniqueness |
+| Missing values | Measure field coverage |
+| Duplicate IDs | Validate source identity |
 | Seniority | Inspect available categories |
 | Work mode | Inspect available categories |
-| Publication dates | Understand temporal coverage |
-| Salary | Measure coverage and inspect suspicious values |
-| Skills | Measure structured skill coverage by source |
+| Publication dates | Inspect temporal coverage |
+| Salary | Measure coverage and suspicious values |
+| Skills | Measure structured skill coverage |
 
-Profiling is treated separately from analytical SQL.
+Profiling is kept separate from analytical SQL.
 
 Its purpose is to understand what the dataset can reliably support before drawing conclusions from it.
 
 ---
 
-## SQL Analysis
+# SQL Analysis
 
 Analytical queries are stored in:
 
@@ -397,7 +656,7 @@ Analytical queries are stored in:
 sql/analysis.sql
 ```
 
-The analytical layer includes:
+The analysis includes:
 
 | Analysis | Question |
 | --- | --- |
@@ -407,10 +666,10 @@ The analytical layer includes:
 | Seniority distribution | How are available seniority categories distributed? |
 | Junior skills | Which skills appear most frequently in junior postings? |
 | Junior vs Senior skills | How does skill prevalence differ by seniority? |
-| Work mode by seniority | Does work-mode distribution differ between junior and senior postings? |
-| Skill co-occurrence | Which skill pairs most frequently appear in the same posting? |
+| Work mode by seniority | Does work-mode distribution differ between junior and senior jobs? |
+| Skill co-occurrence | Which skill pairs most frequently appear together? |
 
-The queries use relational and analytical SQL techniques including:
+The SQL layer exercises:
 
 ```text
 JOIN
@@ -424,34 +683,39 @@ CROSS JOIN
 self-joins
 ```
 
-### Selected Findings
+---
 
-The current snapshot shows:
+## Selected Version 1 Findings
+
+The frozen Version 1 snapshot produced the following results:
 
 | Finding | Result |
-| --- | --- |
+| --- | ---: |
 | Most frequent derived city | Milano — 2,845 postings |
 | Most frequent structured skill | AI — 3,410 postings |
-| Other frequent skills | Cloud 2,928 · Java 2,359 · SQL 2,304 · Python 2,259 |
+| Cloud | 2,928 postings |
+| Java | 2,359 postings |
+| SQL | 2,304 postings |
+| Python | 2,259 postings |
 | Most frequent skill pair | AI + Cloud — 1,436 postings |
-| Python + AI co-occurrence | 1,175 postings |
+| Python + AI | 1,175 postings |
 
-Work mode differs substantially between the available Junior and Senior subsets:
+The available Junior and Senior subsets also showed different work-mode distributions:
 
 | Seniority | Hybrid | Onsite | Remote |
 | --- | ---: | ---: | ---: |
 | Junior | 54.43% | 42.41% | 3.16% |
 | Senior | 46.98% | 28.87% | 24.15% |
 
-These percentages are calculated only from postings where both seniority and work-mode data are available: 158 Junior postings and 530 Senior postings.
+These percentages refer only to records where both seniority and work-mode information were available.
 
-They should therefore be interpreted as characteristics of the available dataset, not as estimates for the entire Italian job market.
+They are not population-level estimates of the Italian job market.
 
 ---
 
-## Power BI
+# Power BI
 
-The Power BI report uses the PostgreSQL relational model as its analytical source.
+Power BI uses the PostgreSQL relational model as its analytical source.
 
 The model imports:
 
@@ -461,34 +725,34 @@ skills
 job_skills
 ```
 
-with one-to-many relationships from `jobs` and `skills` to the `job_skills` junction table.
+with one-to-many relationships from both `jobs` and `skills` to the `job_skills` junction table.
 
-The report contains two pages.
+The current report contains two pages.
 
-### Overview
+## Overview
 
-Provides:
+Includes:
 
-- total job postings;
-- number of data sources;
+- job-posting count;
+- number of sources;
 - number of unique structured skills;
 - seniority distribution;
 - work-mode distribution;
-- top 10 structured skills;
-- top 10 derived cities.
+- top structured skills;
+- top derived cities.
 
-### Junior vs Senior
+## Junior vs Senior
 
 Compares:
 
-- work-mode distribution between Junior and Senior postings;
-- prevalence of the top structured skills between Junior and Senior subsets.
+- work-mode distribution;
+- structured skill prevalence.
 
-The dashboard intentionally focuses on analyses supported by the available data rather than adding visualizations for fields with unreliable coverage or semantics.
+Power BI is intentionally not used to compensate for data-quality issues that can be corrected upstream.
 
 ---
 
-## Project Structure
+# Project Structure
 
 ```text
 it-job-market-analytics/
@@ -515,20 +779,187 @@ it-job-market-analytics/
 │   ├── raw/
 │   └── processed/
 │
+├── Dockerfile
+├── compose.yaml
+├── .dockerignore
+├── .env.example
 ├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
 
-Raw and processed datasets are excluded from Git because they are generated pipeline outputs.
+Raw and processed datasets are generated at runtime and are not committed to Git.
+
+The real `.env` file is also excluded from version control.
+
+`.env.example` documents the required configuration without exposing credentials.
 
 ---
 
-## Running the Project
+# Running the Project
+
+## Recommended Method — Docker Compose
+
+Docker Compose is the recommended way to run the project.
 
 ### Requirements
 
-The project requires:
+You need:
+
+```text
+Git
+Docker
+Docker Compose
+Adzuna API credentials
+```
+
+A local Python installation and local PostgreSQL installation are not required.
+
+---
+
+## 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd it-job-market-analytics
+```
+
+---
+
+## 2. Create the Environment File
+
+Linux/macOS:
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Configure `.env`:
+
+```env
+ADZUNA_APP_ID=your_adzuna_app_id
+ADZUNA_APP_KEY=your_adzuna_app_key
+
+DB_HOST=127.0.0.1
+DB_PORT=5433
+DB_NAME=it_job_market
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
+
+`DB_HOST` and `DB_PORT` describe host-side access.
+
+Inside the Docker network, Compose overrides them for the ETL service so that PostgreSQL is reached through:
+
+```text
+postgres:5432
+```
+
+---
+
+## 3. Run the Complete Pipeline
+
+```bash
+docker compose run --rm etl
+```
+
+On the first execution Docker Compose will:
+
+```text
+build ETL image
+      ↓
+create Docker network
+      ↓
+create PostgreSQL volume
+      ↓
+start PostgreSQL
+      ↓
+initialize schema
+      ↓
+wait for PostgreSQL health check
+      ↓
+run extract.py
+      ↓
+run transform.py
+      ↓
+run load.py
+```
+
+The project has been validated using this procedure from a fresh repository clone with:
+
+- no project virtual environment;
+- no existing project database;
+- no existing project Docker volume;
+- no manually created Docker network;
+- no local PostgreSQL setup.
+
+---
+
+## Running Individual Pipeline Stages
+
+Extraction only:
+
+```bash
+docker compose run --rm etl python src/extract.py
+```
+
+Transformation only:
+
+```bash
+docker compose run --rm etl python src/transform.py
+```
+
+Loading only:
+
+```bash
+docker compose run --rm etl python src/load.py
+```
+
+These commands are useful while developing or debugging individual stages.
+
+---
+
+## Stopping the Environment
+
+Stop and remove the Compose containers and network:
+
+```bash
+docker compose down
+```
+
+The PostgreSQL volume is preserved.
+
+---
+
+## Resetting the Database
+
+To also delete the persistent PostgreSQL volume:
+
+```bash
+docker compose down -v
+```
+
+The next run will create a new database volume and execute:
+
+```text
+sql/schema.sql
+```
+
+again automatically.
+
+---
+
+# Local Execution Without Docker
+
+The pipeline can still be run directly on the host.
+
+Requirements:
 
 ```text
 Python
@@ -536,24 +967,19 @@ PostgreSQL
 Adzuna API credentials
 ```
 
-Install the Python dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Create a `.env` file containing:
+Create a `.env` file using:
 
-```env
-ADZUNA_APP_ID=
-ADZUNA_APP_KEY=
-
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_NAME=it_job_market
-DB_USER=postgres
-DB_PASSWORD=
+```text
+.env.example
 ```
+
+as the template.
 
 Create the PostgreSQL database and apply:
 
@@ -561,7 +987,7 @@ Create the PostgreSQL database and apply:
 sql/schema.sql
 ```
 
-Then execute the pipeline in order:
+Then execute:
 
 ```bash
 python src/extract.py
@@ -569,110 +995,317 @@ python src/transform.py
 python src/load.py
 ```
 
-The SQL profiling and analytical queries can then be executed against the populated PostgreSQL database.
+---
 
-To inspect the visualization layer, open:
+# SQL and Power BI
+
+Once PostgreSQL has been populated, the profiling and analytical queries can be executed from:
+
+```text
+sql/data_profiling.sql
+sql/analysis.sql
+```
+
+The Power BI report can be opened from:
 
 ```text
 powerbi/it_job_market_dashboard.pbix
 ```
 
-in Power BI Desktop.
-
-Refreshing the report from a different environment may require configuring the PostgreSQL data-source connection for that machine.
+Power BI Desktop may require the PostgreSQL connection to be configured for the machine running the report.
 
 ---
 
-## Technology Stack
+# Docker Implementation Details
+
+## ETL Image
+
+The ETL image is built from:
+
+```text
+Dockerfile
+```
+
+using:
+
+```text
+Python 3.14.7
+```
+
+The image contains:
+
+- Python;
+- project dependencies;
+- ETL source code.
+
+The dependency versions used by the project are pinned in:
+
+```text
+requirements.txt
+```
+
+to improve reproducibility.
+
+---
+
+## PostgreSQL Service
+
+PostgreSQL runs using:
+
+```text
+PostgreSQL 18.6
+```
+
+The database service exposes PostgreSQL to the host while also being reachable internally through the Compose network.
+
+The ETL service accesses it using:
+
+```text
+DB_HOST=postgres
+DB_PORT=5432
+```
+
+---
+
+## PostgreSQL Health Check
+
+The PostgreSQL service includes a health check based on:
+
+```text
+pg_isready
+```
+
+The ETL service depends on PostgreSQL reaching the:
+
+```text
+healthy
+```
+
+state.
+
+This avoids relying on arbitrary sleep times before database operations.
+
+---
+
+## Persistent Database Storage
+
+PostgreSQL uses a Docker named volume.
+
+This separates database state from the lifecycle of an individual container.
+
+A PostgreSQL container can therefore be removed and recreated while keeping the existing database.
+
+---
+
+## Bind-mounted Pipeline Data
+
+The host directory:
+
+```text
+./data
+```
+
+is mounted inside the ETL container at:
+
+```text
+/app/data
+```
+
+This keeps raw and processed JSON files outside temporary ETL containers.
+
+During development:
+
+```text
+./src
+```
+
+is also mounted read-only into the ETL container so that source-code changes can be tested without rebuilding the image for every modification.
+
+---
+
+# Technology Stack
 
 | Technology | Purpose |
 | --- | --- |
-| Python | Pipeline implementation |
+| Python 3.14.7 | ETL implementation |
 | Requests | API ingestion |
 | Pandas | Transformation and validation |
 | JSON | Raw and processed persistence |
-| PostgreSQL | Relational storage |
+| PostgreSQL 18.6 | Relational database |
 | Psycopg | Python/PostgreSQL integration |
 | SQL | Profiling and analysis |
-| Power BI | Data visualization |
+| Power BI | Visualization |
 | python-dotenv | Environment configuration |
-| Git / GitHub | Version control and documentation |
+| Docker | Containerized runtime |
+| Docker Compose | Multi-service orchestration |
+| Git | Version control |
+| GitHub | Repository and documentation |
 
 ---
 
-## Key Engineering Decisions
+# Key Engineering Decisions
 
 | Decision | Reason |
 | --- | --- |
-| Preserve raw API responses | Keep ingestion reproducible and transformations debuggable |
-| Separate extraction and transformation | Keep pipeline responsibilities explicit |
-| Use source-specific ingestion logic | The APIs expose different schemas and pagination behavior |
-| Deduplicate after extraction | Raw data should represent what was actually collected |
-| Preserve `(source, source_job_id)` | External IDs belong to separate source namespaces |
-| Avoid cross-source deduplication in v1 | Reliable entity resolution requires additional assumptions |
+| Preserve raw API responses | Keep ingestion traceable and transformations rerunnable |
+| Separate extraction and transformation | Maintain explicit pipeline responsibilities |
+| Use source-specific extraction logic | APIs expose different schemas and pagination models |
+| Deduplicate after extraction | Preserve what the APIs actually returned |
+| Preserve `(source, source_job_id)` | Provider IDs belong to separate namespaces |
+| Avoid cross-source entity resolution | Reliable matching would require additional assumptions |
 | Normalize skills relationally | Jobs and skills form a genuine many-to-many relationship |
-| Preserve missing data | Missing information is preferable to fabricated values |
-| Derive city conservatively | Raw location values have inconsistent granularity |
-| Fix data-quality issues upstream | BI discrepancies should be corrected in the pipeline rather than hidden in visualizations |
-| Exclude salary analysis | Current salary coverage and semantics are not reliable enough |
-| Avoid temporal trend claims | The dataset is a current snapshot with uneven historical coverage |
-| Use full-refresh loading | The dataset is small enough that incremental state is unnecessary in v1 |
-| Use a transaction for loading | Prevent partially refreshed database states |
-| Avoid unnecessary technologies | New tools are added only when they solve a concrete problem |
+| Preserve missing data | Missing information is preferable to invented information |
+| Derive cities conservatively | Location values have inconsistent granularity |
+| Correct data-quality problems upstream | Downstream visualization should not hide pipeline problems |
+| Exclude unreliable salary analysis | Available salary semantics are insufficient for safe normalization |
+| Use a full-refresh load | Current dataset size does not require incremental loading |
+| Use database transactions | Prevent partially refreshed database states |
+| Separate ETL and PostgreSQL containers | Application execution and persistent database state have different lifecycles |
+| Use a PostgreSQL named volume | Database data must survive container recreation |
+| Use bind mounts for pipeline outputs | Raw and processed files should remain accessible on the host |
+| Initialize the schema automatically | Fresh environments should not require manual SQL setup |
+| Use PostgreSQL health checks | Container startup does not necessarily mean database readiness |
+| Propagate extraction failures | Partial extractions must not overwrite a valid database |
+| Pin runtime versions | Rebuilds should use known working versions |
+| Avoid fixed container names | Multiple copies of the project should be able to run independently |
+| Avoid unnecessary technologies | Tools are added only when they solve a concrete project problem |
 
 ---
 
-## Current Limitations
+# Docker Validation
 
-The current dataset is a practical engineering dataset, not a statistically representative sample of the entire Italian IT labour market.
+The Docker setup was tested from a separate fresh clone of the repository.
 
-Important limitations include:
+The test started without:
 
-- different field coverage between Adzuna and FreeHire;
-- structured skill data primarily coming from FreeHire;
-- incomplete seniority and work-mode coverage;
-- incomplete and semantically inconsistent salary data;
-- conservative city derivation with missing values retained when location is ambiguous;
-- no cross-source entity resolution;
-- FreeHire extraction limited to the first 10,000 records allowed by its deep-pagination constraint;
-- no historical snapshot collection yet.
+```text
+project database
+project PostgreSQL volume
+project Docker network
+local virtual environment
+generated data directories
+```
 
-These limitations are treated as part of the analytical context rather than hidden through aggressive cleaning.
+Running:
+
+```bash
+docker compose run --rm etl
+```
+
+successfully:
+
+1. built the ETL image;
+2. created the Docker network;
+3. created the PostgreSQL volume;
+4. initialized the PostgreSQL schema;
+5. waited for PostgreSQL to become healthy;
+6. created the required data directories;
+7. extracted API data;
+8. transformed and validated the dataset;
+9. loaded the data into PostgreSQL.
+
+This test is used as the reproducibility check for the Docker milestone.
 
 ---
 
-## Version 1
+# Current Limitations
+
+The dataset and pipeline still have several known limitations.
+
+### Data
+
+- The two APIs provide different field coverage.
+- Structured skills are not uniformly available.
+- Seniority and work mode are incomplete.
+- Salary coverage and semantics remain unreliable.
+- Geographic values have inconsistent source granularity.
+- Cross-source entity resolution is not implemented.
+- FreeHire extraction is limited to the first 10,000 records supported by its deep-pagination behavior.
+- The dataset represents pipeline snapshots rather than a historical time series.
+
+### Pipeline
+
+- There is currently no automated test suite.
+- Adzuna can occasionally return temporary HTTP failures.
+- Retry logic mitigates temporary API errors but does not persist extraction checkpoints between runs.
+- The pipeline currently performs full-refresh loading rather than incremental ingestion.
+- Execution is manually triggered rather than scheduled.
+
+### Deployment
+
+- Docker currently runs locally.
+- Azure deployment is not yet implemented.
+- Power BI is not containerized and remains a desktop analytical layer.
+
+---
+
+# Version History
+
+## Version 1 — Complete
+
+Version 1 established the full end-to-end data workflow.
 
 | Milestone | Status |
 | --- | :---: |
 | API investigation | ✅ |
 | Multi-source extraction | ✅ |
-| Raw data persistence | ✅ |
-| Transformation and validation | ✅ |
+| Raw JSON persistence | ✅ |
+| Transformation | ✅ |
+| Data validation | ✅ |
 | Data-quality filtering | ✅ |
 | PostgreSQL relational model | ✅ |
 | Transactional database loading | ✅ |
-| SQL data profiling | ✅ |
+| SQL profiling | ✅ |
 | SQL analysis | ✅ |
 | Power BI dashboard | ✅ |
-| Dashboard screenshots | ✅ |
-| Project documentation | ✅ |
-
-**Version 1 is complete.**
+| Documentation | ✅ |
 
 ---
 
-## Possible Future Improvements
+## Version 2 — In Progress
 
-Potential future iterations could explore:
+### Docker Milestone
 
-- automated tests for transformation and loading logic;
-- cross-source job entity resolution;
+| Milestone | Status |
+| --- | :---: |
+| ETL Docker image | ✅ |
+| PostgreSQL container | ✅ |
+| Persistent database volume | ✅ |
+| Container networking | ✅ |
+| Docker Compose orchestration | ✅ |
+| Environment configuration | ✅ |
+| Automatic schema initialization | ✅ |
+| PostgreSQL health check | ✅ |
+| Complete ETL command | ✅ |
+| Pipeline failure propagation | ✅ |
+| Runtime version pinning | ✅ |
+| Fresh-clone reproducibility test | ✅ |
+
+### Azure Milestone
+
+| Milestone | Status |
+| --- | :---: |
+| Azure architecture design | ⏳ |
+| Cloud resource selection | ⏳ |
+| Cloud deployment | ⏳ |
+| Cloud execution validation | ⏳ |
+
+---
+
+# Future Improvements
+
+Potential future iterations include:
+
+- automated unit and integration tests;
 - historical snapshot collection;
+- extraction checkpointing and resume support;
+- incremental loading;
+- cross-source entity resolution;
 - improved geographic normalization;
-- more robust salary normalization if source semantics allow it;
-- containerization with Docker;
-- orchestration of the complete pipeline;
-- deployment to a cloud environment.
+- improved salary normalization if source semantics allow it;
+- automated scheduling;
+- CI/CD;
+- monitoring and structured logging;
+- cloud deployment on Microsoft Azure.
 
-These are intentionally outside the scope of version 1.
+These improvements will be added only when they solve a concrete limitation or provide a useful learning objective.
