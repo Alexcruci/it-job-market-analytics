@@ -31,10 +31,15 @@ services:
       DB_PORT: 5432
 
     volumes:
-      - ./data:/app/data
+    - ./data:/app/data
+    - ./src:/app/src:ro
     depends_on:
       postgres:
         condition: service_healthy
+    command: >
+      sh -c "python src/extract.py &&
+            python src/transform.py &&
+            python src/load.py"
 
 volumes:
   postgres_data:
