@@ -1,6 +1,6 @@
 import json
 import os
-
+import time
 import requests
 from dotenv import load_dotenv
 
@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+from pathlib import Path
+
+Path("data/raw").mkdir(parents=True, exist_ok=True)
 
 # Adzuna extraction
 # Define API parameters
@@ -37,25 +40,36 @@ while True:
                 params=params,
                 timeout=10,
             )
-            break
+
+            if response.status_code == 200:
+                break
+
+            if response.status_code in (429, 502, 503, 504):
+                print(
+                    f"Temporary HTTP {response.status_code} "
+                    f"on page {page} - "
+                    f"Attempt {attempt + 1}/{max_retries}"
+                )
+                time.sleep(2)
+                continue
+
+            raise RuntimeError(
+                f"Request failed on page {page}: "
+                f"HTTP {response.status_code}"
+            )
+
         except requests.exceptions.Timeout:
             print(
                 f"Timeout on page {page} - "
                 f"Attempt {attempt + 1}/{max_retries}"
             )
-    else:
-        print(
-            f"Failed to retrieve page {page}. "
-            f"Stopping extraction."
-        )
-        break
+            time.sleep(2)
 
-    if response.status_code != 200:
-        print(
-            f"Request failed on page {page}: "
-            f"HTTP {response.status_code}"
+    else:
+        raise RuntimeError(
+            f"Failed to retrieve page {page} "
+            f"after {max_retries} attempts."
         )
-        break
 
     adzuna_data = response.json()
     adzuna_reported_count = adzuna_data["count"]
