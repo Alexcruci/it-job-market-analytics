@@ -906,10 +906,10 @@ A local Python installation and local PostgreSQL installation are not required.
 
 ### 1. Clone the Repository
 
-The completed Docker/Azure work was developed on `v2-docker-azure`:
+Clone the repository:
 
 ```bash
-git clone --branch v2-docker-azure https://github.com/Alexcruci/it-job-market-analytics.git
+git clone https://github.com/Alexcruci/it-job-market-analytics.git
 cd it-job-market-analytics
 ```
 
@@ -1613,4 +1613,4 @@ Potential future iterations include:
 - monitoring and structured logging;
 - durable cloud intermediate storage and retained execution logs.
 
-These are possible extensions, not implemented features or requirements for completion. The final project scope is complete: multi-source ETL, relational analytics, Power BI, reproducible Docker execution, and validated Azure execution. Version 2 completion describes the implemented milestone; it does not assert that a GitHub `v2.0.0` tag or release has already been published.
+These are possible extensions, not implemented features or requirements for completion. The final project scope is complete: multi-source ETL, relational analytics, Power BI, reproducible Docker execution, and validated Azure execution. Version 2 is the completed Docker and Azure release of Project Zero.
